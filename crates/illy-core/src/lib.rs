@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod events;
+pub mod mime;
 pub mod model;
 pub mod providers;
 pub mod secrets;

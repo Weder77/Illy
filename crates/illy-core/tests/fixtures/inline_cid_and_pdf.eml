@@ -1,0 +1,30 @@
+From: Marie Dupont <marie@exemple.fr>
+To: moi@exemple.fr
+Subject: Devis cuisine
+Date: Wed, 11 Nov 2026 14:32:00 +0100
+Message-ID: <devis@exemple.fr>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="m1"
+
+--m1
+Content-Type: multipart/related; boundary="r1"
+
+--r1
+Content-Type: text/html; charset=utf-8
+
+<p>Bonjour, voici le devis.</p><img src="cid:logo@x"><img src="https://t.example/p.gif">
+--r1
+Content-Type: image/png; name="logo.png"
+Content-ID: <logo@x>
+Content-Disposition: inline; filename="logo.png"
+Content-Transfer-Encoding: base64
+
+AQID
+--r1--
+--m1
+Content-Type: application/pdf; name="devis.pdf"
+Content-Disposition: attachment; filename="devis.pdf"
+Content-Transfer-Encoding: base64
+
+JVBERi0xLjQKJcOkw7zDtsOfCg==
+--m1--

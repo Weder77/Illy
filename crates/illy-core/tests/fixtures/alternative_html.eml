@@ -1,0 +1,16 @@
+From: Atelier Bois & Cie <contact@atelier-bois.example>
+To: moi@exemple.fr
+Subject: Votre newsletter
+Date: Mon, 09 Nov 2026 09:00:00 +0000
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="b1"
+
+--b1
+Content-Type: text/plain; charset=utf-8
+
+Version texte.
+--b1
+Content-Type: text/html; charset=utf-8
+
+<p>Version <b>HTML</b>.</p>
+--b1--

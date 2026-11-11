@@ -660,6 +660,7 @@ dependencies = [
  "base64 0.22.1",
  "futures",
  "html-escape",
+ "imap-proto",
  "keyring-core",
  "lettre",
  "mail-parser",
