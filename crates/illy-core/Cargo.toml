@@ -27,7 +27,8 @@ regex = "1"
 html-escape = "0.2"
 
 [target.'cfg(windows)'.dependencies]
-keyring = { version = "4", default-features = false, features = ["windows-native-keyring-store"] }
+keyring-core = "1"
+windows-native-keyring-store = "1.1"
 
 [dev-dependencies]
 tempfile = "3"
