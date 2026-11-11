@@ -3,9 +3,13 @@
 mod accounts;
 mod allowlist;
 mod folders;
+mod messages;
+mod ops;
 mod schema;
 
 pub use folders::{FolderInfo, FolderSyncState};
+pub use messages::NewHeader;
+pub use ops::{Op, OpKind};
 
 use crate::error::{CoreError, Result};
 use rusqlite::Connection;

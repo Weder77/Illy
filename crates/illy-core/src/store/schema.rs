@@ -64,6 +64,7 @@ CREATE TABLE messages (
 CREATE INDEX messages_folder_date ON messages(folder_id, date DESC, id DESC);
 CREATE INDEX messages_account_msgid ON messages(account_id, message_id);
 CREATE INDEX messages_account_body ON messages(account_id, body_state, date DESC);
+CREATE INDEX messages_date ON messages(date DESC, id DESC);
 
 CREATE TABLE parts (
     id INTEGER PRIMARY KEY,
