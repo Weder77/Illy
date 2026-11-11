@@ -5,5 +5,6 @@ pub mod events;
 pub mod model;
 pub mod providers;
 pub mod secrets;
+pub mod store;
 
 pub use error::{CoreError, Result};
