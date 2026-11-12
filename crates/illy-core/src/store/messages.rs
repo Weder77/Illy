@@ -360,6 +360,13 @@ impl Store {
         })
     }
 
+    pub fn message_id_by_uid(&self, folder: FolderId, uid: u32) -> Result<Option<MessageId>> {
+        self.with(|c| {
+            Ok(c.query_row("SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2", params![folder, uid], |r| r.get(0))
+                .optional()?)
+        })
+    }
+
     pub fn has_any_part(&self, id: MessageId) -> Result<bool> {
         self.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM parts WHERE message_id = ?1", [id], |r| r.get::<_, i64>(0))? > 0))
     }

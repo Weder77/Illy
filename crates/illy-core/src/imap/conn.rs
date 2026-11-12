@@ -67,6 +67,8 @@ async fn tcp(cfg: &ServerConfig) -> Result<TcpStream> {
     let s = TcpStream::connect((cfg.host.as_str(), cfg.port))
         .await
         .map_err(|e| CoreError::Network(format!("{}:{} — {e}", cfg.host, cfg.port)))?;
+    // Petites commandes IMAP : sans TCP_NODELAY, Nagle + ACK différé ajoutent ~40-200 ms par échange.
+    let _ = s.set_nodelay(true);
     let keepalive = socket2::TcpKeepalive::new().with_time(Duration::from_secs(60)).with_interval(Duration::from_secs(20));
     let _ = socket2::SockRef::from(&s).set_tcp_keepalive(&keepalive);
     Ok(s)

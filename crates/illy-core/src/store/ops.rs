@@ -69,6 +69,11 @@ impl Store {
         })
     }
 
+    /// Échéance de la prochaine action en attente d'un compte.
+    pub fn next_op_at(&self, account: AccountId) -> Result<Option<i64>> {
+        self.with(|c| Ok(c.query_row("SELECT MIN(next_attempt_at) FROM ops WHERE account_id = ?1", [account], |r| r.get(0))?))
+    }
+
     pub fn pending_ops_count(&self, account: AccountId) -> Result<u32> {
         self.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM ops WHERE account_id = ?1", [account], |r| r.get(0))?))
     }

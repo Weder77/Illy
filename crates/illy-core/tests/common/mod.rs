@@ -156,3 +156,26 @@ impl GreenMail {
         illy_core::imap::fetch_flags(&mut s, &illy_core::imap::uid_set(&uids), None).await.unwrap()
     }
 }
+
+impl GreenMail {
+    /// Dépose `n` mails simples (numérotés à partir de `from`) avec une seule session.
+    pub async fn append_many(&self, folder: &str, from: u32, n: u32) {
+        let mut s = self.session().await;
+        for i in from..from + n {
+            s.append(folder, None, None, simple_eml(i)).await.expect("append");
+        }
+        let _ = s.logout().await;
+    }
+}
+
+/// Attend qu'une condition devienne vraie (sondage toutes les 50 ms).
+pub async fn wait_until(timeout_secs: u64, mut f: impl FnMut() -> bool) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    while std::time::Instant::now() < deadline {
+        if f() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    f()
+}

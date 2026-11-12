@@ -3,10 +3,16 @@
 mod diff;
 mod body;
 mod folder_sync;
+mod manager;
+mod ops_exec;
+mod worker;
 
 pub use diff::{diff_uids, uidvalidity_changed, UidDiff};
 pub use body::{fetch_attachment, fetch_body};
 pub use folder_sync::{backfill_step, sync_folder, FolderBacklog};
+pub use manager::SyncManager;
+pub use ops_exec::{backoff, run_due_ops};
+pub use worker::WorkerRequest;
 
 use std::time::Duration;
 
