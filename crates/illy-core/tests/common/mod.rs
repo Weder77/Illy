@@ -8,7 +8,7 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-pub const USER: &str = "alice";
+pub const USER: &str = "alice@localhost";
 pub const PASSWORD: &str = "secret";
 pub const EMAIL: &str = "alice@localhost";
 
@@ -34,7 +34,8 @@ impl GreenMail {
             .arg("-Dgreenmail.imap.hostname=127.0.0.1")
             .arg(format!("-Dgreenmail.smtp.port={smtp_port}"))
             .arg("-Dgreenmail.smtp.hostname=127.0.0.1")
-            .arg(format!("-Dgreenmail.users={USER}:{PASSWORD}@localhost"))
+            .arg(format!("-Dgreenmail.users=alice:{PASSWORD}@localhost"))
+            .arg("-Dgreenmail.users.login=email")
             .arg("-jar")
             .arg(jar())
             .stdout(Stdio::null())

@@ -106,6 +106,15 @@ impl Store {
         })
     }
 
+    pub fn folder_account(&self, id: FolderId) -> Result<AccountId> {
+        self.with(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row("SELECT account_id FROM folders WHERE id = ?1", [id], |r| r.get(0))
+                .optional()?
+                .ok_or(crate::CoreError::NotFound)
+        })
+    }
+
     pub fn folder_path(&self, id: FolderId) -> Result<String> {
         self.with(|c| {
             use rusqlite::OptionalExtension;
