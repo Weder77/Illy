@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 pub const USER: &str = "alice@localhost";
 pub const PASSWORD: &str = "secret";
 pub const EMAIL: &str = "alice@localhost";
+pub const BOB: &str = "bob@localhost";
 
 pub struct GreenMail {
     child: Child,
@@ -64,7 +65,7 @@ impl GreenMail {
             .arg("-Dgreenmail.smtp.hostname=127.0.0.1")
             .arg(format!("-Dgreenmail.imaps.port={imaps_port}"))
             .arg("-Dgreenmail.imaps.hostname=127.0.0.1")
-            .arg(format!("-Dgreenmail.users=alice:{PASSWORD}@localhost"))
+            .arg(format!("-Dgreenmail.users=alice:{PASSWORD}@localhost,bob:{PASSWORD}@localhost"))
             .arg("-Dgreenmail.users.login=email")
             .arg("-jar")
             .arg(jar())
@@ -94,6 +95,10 @@ impl GreenMail {
 
     pub async fn session(&self) -> ImapSession {
         connect(&self.imap(), USER, PASSWORD).await.expect("login").0
+    }
+
+    pub async fn session_as(&self, user: &str) -> ImapSession {
+        connect(&self.imap(), user, PASSWORD).await.expect("login").0
     }
 
     /// Dépose un mail dans un dossier (créé si besoin) via une session séparée.

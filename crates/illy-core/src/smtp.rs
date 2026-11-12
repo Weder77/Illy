@@ -42,3 +42,16 @@ pub async fn test_smtp(cfg: &ServerConfig, user: &str, password: &str) -> Result
         Err(e) => Err(smtp_err(e)),
     }
 }
+
+/// Envoie un message déjà construit (enveloppe explicite : À + Cc + Cci).
+pub async fn send_raw(cfg: &ServerConfig, user: &str, password: &str, envelope_to: &[String], from: &str, raw: &[u8]) -> Result<()> {
+    use lettre::AsyncTransport;
+    let parse = |e: &str| -> Result<lettre::Address> {
+        e.trim().parse().map_err(|_| CoreError::InvalidInput(format!("Adresse invalide : {e}")))
+    };
+    let to = envelope_to.iter().map(|e| parse(e)).collect::<Result<Vec<_>>>()?;
+    let envelope = lettre::address::Envelope::new(Some(parse(from)?), to)
+        .map_err(|e| CoreError::InvalidInput(format!("enveloppe invalide : {e}")))?;
+    transport(cfg, user, password)?.send_raw(&envelope, raw).await.map_err(smtp_err)?;
+    Ok(())
+}

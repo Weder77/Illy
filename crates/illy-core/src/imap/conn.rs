@@ -19,6 +19,7 @@ pub struct Caps {
     pub condstore: bool,
     pub r#move: bool,
     pub special_use: bool,
+    pub uidplus: bool,
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -157,6 +158,7 @@ async fn connect_inner(cfg: &ServerConfig, user: &str, password: &str) -> Result
         condstore: c.has_str("CONDSTORE"),
         r#move: c.has_str("MOVE"),
         special_use: c.has_str("SPECIAL-USE"),
+        uidplus: c.has_str("UIDPLUS"),
     };
     Ok((session, caps))
 }

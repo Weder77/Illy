@@ -137,3 +137,36 @@ async fn untrusted_certificate_is_refused() {
     let r = connect(&cfg, USER, PASSWORD).await;
     assert!(matches!(r, Err(CoreError::Tls(_))), "{:?}", r.err());
 }
+
+#[tokio::test]
+async fn append_search_flag_delete() {
+    let gm = GreenMail::start();
+    let mut s = gm.session().await;
+    let _ = s.create("Drafts").await;
+    let raw = b"From: alice@localhost\r\nSubject: brouillon\r\nX-Illy-Draft: 42\r\n\r\ncorps\r\n";
+    let (_, caps) = connect(&gm.imap(), USER, PASSWORD).await.unwrap();
+    assert!(caps.uidplus, "GreenMail advertises UIDPLUS");
+    append(&mut s, "Drafts", "(\\Draft \\Seen)", raw).await.unwrap();
+    select(&mut s, "Drafts", false).await.unwrap();
+    let uids = search_header(&mut s, "X-Illy-Draft", "42").await.unwrap();
+    assert_eq!(uids.len(), 1);
+    assert!(search_header(&mut s, "X-Illy-Draft", "4\"2").await.unwrap().is_empty(), "quotes are escaped");
+    add_flag(&mut s, uids[0], "\\Answered").await.unwrap();
+    assert_eq!(fetch_flags(&mut s, &uid_set(&uids), None).await.unwrap(), vec![(uids[0], true, true)]);
+    delete_uid(&mut s, uids[0], &caps).await.unwrap();
+    assert!(search_header(&mut s, "X-Illy-Draft", "42").await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn smtp_send_reaches_bob() {
+    let gm = GreenMail::start();
+    let raw = b"From: alice@localhost\r\nTo: bob@localhost\r\nSubject: Coucou Bob\r\n\r\nSalut\r\n";
+    illy_core::smtp::send_raw(&gm.smtp(), USER, PASSWORD, &[BOB.to_string()], USER, raw).await.unwrap();
+    let mut b = gm.session_as(BOB).await;
+    select(&mut b, "INBOX", false).await.unwrap();
+    let uids = search_all_uids(&mut b).await.unwrap();
+    assert_eq!(uids.len(), 1);
+    assert_eq!(fetch_headers(&mut b, &uids, true).await.unwrap()[0].headers.subject, "Coucou Bob");
+    let r = illy_core::smtp::send_raw(&gm.smtp(), USER, "faux", &[BOB.to_string()], USER, raw).await;
+    assert!(matches!(r, Err(CoreError::Auth(_))), "{r:?}");
+}

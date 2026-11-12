@@ -123,6 +123,42 @@ pub async fn fetch_full(s: &mut ImapSession, uid: u32) -> Result<Vec<u8>> {
     Ok(f.body().unwrap_or_default().to_vec())
 }
 
+/// Dépose un message dans un dossier (copie dans Envoyés, brouillon serveur).
+pub async fn append(s: &mut ImapSession, folder: &str, flags: &str, raw: &[u8]) -> Result<()> {
+    s.append(folder, Some(flags), None, raw).await.map_err(imap_err)
+}
+
+/// UID des mails du dossier sélectionné dont l'en-tête `field` contient `value`.
+pub async fn search_header(s: &mut ImapSession, field: &str, value: &str) -> Result<Vec<u32>> {
+    let field: String = field.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+    let value = value.replace('\\', "\\\\").replace('"', "\\\"");
+    let mut v: Vec<u32> = s.uid_search(format!("HEADER {field} \"{value}\"")).await.map_err(imap_err)?.into_iter().collect();
+    v.sort_unstable();
+    Ok(v)
+}
+
+pub async fn add_flag(s: &mut ImapSession, uid: u32, flag: &str) -> Result<()> {
+    let _: Vec<_> = s
+        .uid_store(uid.to_string(), format!("+FLAGS.SILENT ({flag})"))
+        .await
+        .map_err(imap_err)?
+        .try_collect()
+        .await
+        .map_err(imap_err)?;
+    Ok(())
+}
+
+/// Supprime définitivement un mail du dossier sélectionné.
+pub async fn delete_uid(s: &mut ImapSession, uid: u32, caps: &super::Caps) -> Result<()> {
+    add_flag(s, uid, "\\Deleted").await?;
+    if caps.uidplus {
+        let _: Vec<_> = s.uid_expunge(uid.to_string()).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    } else {
+        let _: Vec<_> = s.expunge().await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    }
+    Ok(())
+}
+
 pub async fn store_seen(s: &mut ImapSession, uid: u32, seen: bool) -> Result<()> {
     let q = if seen { "+FLAGS.SILENT (\\Seen)" } else { "-FLAGS.SILENT (\\Seen)" };
     let _: Vec<_> = s.uid_store(uid.to_string(), q).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
