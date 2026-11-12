@@ -100,6 +100,7 @@ pub async fn sync_folder(
 }
 
 /// Récupère le lot suivant d'en-têtes anciens d'un dossier.
+#[allow(clippy::too_many_arguments)]
 pub async fn backfill_step(
     s: &mut ImapSession,
     store: &Store,

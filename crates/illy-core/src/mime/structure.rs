@@ -60,7 +60,7 @@ fn walk_children(bodies: &[BodyStructure<'_>], prefix: &str, out: &mut Vec<PartI
     }
 }
 
-fn param<'a>(params: &'a imap_proto::BodyParams<'_>, key: &str) -> Option<String> {
+fn param(params: &imap_proto::BodyParams<'_>, key: &str) -> Option<String> {
     params.as_ref()?.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.to_string())
 }
 

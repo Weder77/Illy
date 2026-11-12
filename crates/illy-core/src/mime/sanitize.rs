@@ -55,13 +55,9 @@ pub fn sanitize_html(html: &str, inline: &HashMap<String, (String, Vec<u8>)>) ->
             (_, "style") => Some(Cow::Owned(neutralize_css(value))),
             ("img", "src") if lower.starts_with("cid:") => {
                 let id = value.trim()[4..].trim_start_matches('<').trim_end_matches('>');
-                match inline_owned.get(id) {
-                    Some((mime, data)) => Some(Cow::Owned(format!(
-                        "data:{mime};base64,{}",
-                        base64::engine::general_purpose::STANDARD.encode(data)
-                    ))),
-                    None => None,
-                }
+                inline_owned.get(id).map(|(mime, data)| {
+                    Cow::Owned(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(data)))
+                })
             }
             ("img", "src") if lower.starts_with("data:") => {
                 if lower.starts_with("data:image/") { Some(Cow::Borrowed(value)) } else { None }

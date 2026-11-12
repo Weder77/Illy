@@ -373,9 +373,9 @@ impl Store {
 
     pub fn message_detail_has_attachments(&self, id: MessageId) -> Result<bool> {
         self.with(|c| {
-            Ok(c.query_row("SELECT has_attachments FROM messages WHERE id = ?1", [id], |r| r.get(0))
+            c.query_row("SELECT has_attachments FROM messages WHERE id = ?1", [id], |r| r.get(0))
                 .optional()?
-                .ok_or(CoreError::NotFound)?)
+                .ok_or(CoreError::NotFound)
         })
     }
 
