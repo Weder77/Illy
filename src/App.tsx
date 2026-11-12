@@ -19,8 +19,10 @@ export default function App() {
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
 
   useEffect(() => {
+    // Écoute d'abord : un statut émis pendant le chargement ne doit pas être perdu.
+    const off = api.onEvent(applyEvent);
     void init().catch((e) => console.error('démarrage', e));
-    return api.onEvent(applyEvent);
+    return off;
   }, [init, applyEvent]);
 
   return (

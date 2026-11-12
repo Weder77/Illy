@@ -78,7 +78,7 @@ describe('app store', () => {
     const v = useAppStore.getState().listVersion;
     fake.listFolders.mockClear();
     useAppStore.getState().applyEvent({ type: 'folder_changed', accountId: 1, folderId: 10 });
-    expect(useAppStore.getState().listVersion).toBe(v + 1);
+    await vi.waitFor(() => expect(useAppStore.getState().listVersion).toBe(v + 1));
     expect(fake.listFolders).toHaveBeenCalledWith(1);
   });
 
@@ -88,5 +88,24 @@ describe('app store', () => {
     useAppStore.getState().applyEvent({ type: 'folders_changed', accountId: 2 });
     await vi.waitFor(() => expect(useAppStore.getState().selection.scope).toEqual({ kind: 'folder', folderId: 20 }));
     expect(useAppStore.getState().focusAccount).toBeNull();
+  });
+
+  test('bursts of sync events refresh the list at most once per window', async () => {
+    await useAppStore.getState().init();
+    vi.useFakeTimers();
+    try {
+      const v = useAppStore.getState().listVersion;
+      fake.listFolders.mockClear();
+      for (let i = 0; i < 50; i++) {
+        useAppStore.getState().applyEvent({ type: 'message_updated', messageId: i });
+        useAppStore.getState().applyEvent({ type: 'folder_changed', accountId: 1, folderId: 10 });
+      }
+      expect(useAppStore.getState().listVersion).toBe(v);
+      vi.advanceTimersByTime(400);
+      expect(useAppStore.getState().listVersion).toBe(v + 1);
+      expect(fake.listFolders).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

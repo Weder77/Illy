@@ -33,6 +33,12 @@ export interface AppState {
 
 const unified: ListScope = { kind: 'unified_inbox' };
 
+/** Pendant la synchro, les événements arrivent en rafale : on regroupe les relectures. */
+const REFRESH_WINDOW_MS = 300;
+let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let refreshList = false;
+const refreshFolders = new Set<number>();
+
 export const useAppStore = create<AppState>()((set, get) => ({
   accounts: [],
   folders: {},
@@ -92,6 +98,21 @@ export const useAppStore = create<AppState>()((set, get) => ({
           accounts: s.accounts.map((a) => (a.id === e.accountId ? { ...a, status: e.status, lastError: e.error } : a)),
         }));
         break;
+      case 'folder_changed':
+      case 'message_updated':
+        if (e.type === 'folder_changed') refreshFolders.add(e.accountId);
+        refreshList = true;
+        if (!refreshTimer) {
+          refreshTimer = setTimeout(() => {
+            refreshTimer = null;
+            const accounts = [...refreshFolders];
+            refreshFolders.clear();
+            if (refreshList) set((s) => ({ listVersion: s.listVersion + 1, messageVersion: s.messageVersion + 1 }));
+            refreshList = false;
+            accounts.forEach((id) => void get().loadFolders(id).catch(() => undefined));
+          }, REFRESH_WINDOW_MS);
+        }
+        break;
       case 'folders_changed':
         void get()
           .loadFolders(e.accountId)
@@ -103,13 +124,6 @@ export const useAppStore = create<AppState>()((set, get) => ({
             get().selectScope({ kind: 'folder', folderId: inbox.id });
           })
           .catch(() => undefined);
-        break;
-      case 'folder_changed':
-        set((s) => ({ listVersion: s.listVersion + 1 }));
-        void get().loadFolders(e.accountId).catch(() => undefined);
-        break;
-      case 'message_updated':
-        set((s) => ({ listVersion: s.listVersion + 1, messageVersion: s.messageVersion + 1 }));
         break;
       case 'sync_progress':
         break;
