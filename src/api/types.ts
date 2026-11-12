@@ -21,6 +21,8 @@ export type AccountStatus = 'ok' | 'syncing' | 'auth_error' | 'offline' | 'error
 
 export interface Account extends NewAccount {
   id: number;
+  /** Signature HTML du compte (réglable au lot B ; absente = aucune). */
+  signatureHtml?: string;
   color: string;
   sortOrder: number;
   status: AccountStatus;

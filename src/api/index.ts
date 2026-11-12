@@ -57,8 +57,8 @@ export interface Api {
   openComposeWindow(draftId: number): Promise<void>;
   /** Fenêtre « Nouveau mail » : appelé avant sa fermeture (le brouillon doit être enregistré). */
   onWindowCloseRequested(cb: () => Promise<void>): () => void;
-  /** Fichiers déposés sur la fenêtre (chemins), hors zone de texte. */
-  onFileDrop(cb: (paths: string[]) => void): () => void;
+  /** Fichiers déposés sur la fenêtre : chemins et point de dépôt (pixels CSS de la fenêtre). */
+  onFileDrop(cb: (paths: string[], at: { x: number; y: number }) => void): () => void;
 }
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;

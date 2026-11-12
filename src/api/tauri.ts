@@ -58,7 +58,9 @@ export const tauriApi: Api = {
   onFileDrop: (cb) =>
     subscription(
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === 'drop' && e.payload.paths.length > 0) cb(e.payload.paths);
+        if (e.payload.type !== 'drop' || e.payload.paths.length === 0) return;
+        const ratio = window.devicePixelRatio || 1;
+        cb(e.payload.paths, { x: e.payload.position.x / ratio, y: e.payload.position.y / ratio });
       }),
     ),
 };

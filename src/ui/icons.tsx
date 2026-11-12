@@ -38,3 +38,11 @@ export const IconSquare = (p: P) => <Svg {...p}><rect x="5" y="5" width="14" hei
 export const IconClose = (p: P) => <Svg {...p}><path d="M18 6 6 18M6 6l12 12" /></Svg>;
 export const IconMail = (p: P) => <Svg {...p}><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></Svg>;
 export const IconPlus = (p: P) => <Svg {...p}><path d="M12 5v14M5 12h14" /></Svg>;
+export const IconBold = (p: P) => <Svg {...p}><path d="M7 5h6a3.5 3.5 0 0 1 0 7H7z" /><path d="M7 12h7a3.5 3.5 0 0 1 0 7H7z" /></Svg>;
+export const IconItalic = (p: P) => <Svg {...p}><path d="M19 4h-9M14 20H5M15 4 9 20" /></Svg>;
+export const IconUnderline = (p: P) => <Svg {...p}><path d="M6 4v6a6 6 0 0 0 12 0V4" /><path d="M4 21h16" /></Svg>;
+export const IconList = (p: P) => <Svg {...p}><path d="M9 6h11M9 12h11M9 18h11" /><path d="M4.5 6h.01M4.5 12h.01M4.5 18h.01" /></Svg>;
+export const IconListOrdered = (p: P) => <Svg {...p}><path d="M10 6h10M10 12h10M10 18h10" /><path d="M4 6h1v4M4 10h2" /><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1" /></Svg>;
+export const IconLink = (p: P) => <Svg {...p}><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></Svg>;
+export const IconQuote = (p: P) => <Svg {...p}><path d="M4 7h6v6H6a2 2 0 0 1-2-2zM4 13c0 2 1 4 4 5" /><path d="M14 7h6v6h-4a2 2 0 0 1-2-2zM14 13c0 2 1 4 4 5" /></Svg>;
+export const IconChevronDown = (p: P) => <Svg {...p}><path d="m6 9 6 6 6-6" /></Svg>;
