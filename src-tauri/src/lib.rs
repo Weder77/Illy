@@ -99,6 +99,23 @@ pub fn run() {
             commands::open_attachment,
             commands::save_attachment,
             commands::open_url,
+            commands::search_contacts,
+            commands::create_draft,
+            commands::draft_for_message,
+            commands::draft_from_message,
+            commands::get_draft,
+            commands::update_draft,
+            commands::add_attachments,
+            commands::pick_attachments,
+            commands::remove_attachment,
+            commands::close_draft,
+            commands::discard_draft,
+            commands::send_draft,
+            commands::cancel_send,
+            commands::list_outbox,
+            commands::get_settings,
+            commands::set_setting,
+            commands::open_compose_window,
         ])
         .run(tauri::generate_context!())
         .expect("échec du démarrage d'Illy");
