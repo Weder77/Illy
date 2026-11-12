@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { api } from './api';
 import { useAppStore } from './state/store';
 import { MessageList } from './features/message-list/MessageList';
+import { Reader } from './features/reader/Reader';
 import { Sidebar } from './features/sidebar/Sidebar';
 import { TitleBar } from './ui/TitleBar';
 import styles from './App.module.css';
@@ -26,7 +27,9 @@ export default function App() {
         <section className={styles.panel} data-testid="panel-list" aria-label="Liste">
           <MessageList />
         </section>
-        <section className={styles.panel} data-testid="panel-reader" aria-label="Lecture" />
+        <section className={styles.panel} data-testid="panel-reader" aria-label="Lecture">
+          <Reader />
+        </section>
       </main>
     </div>
   );

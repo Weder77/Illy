@@ -36,10 +36,15 @@
   color: var(--text-2);
 }
 .top {
-  height: 44px;
-  padding-left: 10px;
+  height: auto;
+  min-height: 46px;
+  padding: 6px 10px;
   font-weight: 600;
   color: var(--text);
+}
+.top .label {
+  white-space: normal;
+  line-height: 1.25;
 }
 .top .icon {
   width: 30px;
