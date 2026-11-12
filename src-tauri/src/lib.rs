@@ -29,7 +29,14 @@ fn data_dir() -> Result<PathBuf, String> {
 }
 
 fn init_logging(dir: &std::path::Path) -> LogGuard {
-    let appender = tracing_appender::rolling::daily(dir, "illy.log");
+    // Un fichier par jour, 14 jours gardés.
+    let appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("illy")
+        .filename_suffix("log")
+        .max_log_files(14)
+        .build(dir)
+        .unwrap_or_else(|_| tracing_appender::rolling::daily(dir, "illy.log"));
     let (writer, guard) = tracing_appender::non_blocking(appender);
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
@@ -50,6 +57,15 @@ fn secret_store() -> Result<Arc<dyn SecretStore>, String> {
 
 pub fn run() {
     tauri::Builder::default()
+        // Une seule instance : relancer Illy remet la fenêtre existante au premier plan
+        // (deux instances doubleraient les connexions et videraient le dossier temporaire de l'autre).
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

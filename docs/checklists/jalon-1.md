@@ -21,9 +21,11 @@ Coche chaque ligne. Si quelque chose ne va pas, note le numéro et ce que tu as 
 7. [ ] **Liens** : un clic sur un lien d'un mail l'ouvre dans ton navigateur habituel.
 8. [ ] **Pièces jointes** : un PDF s'ouvre d'un clic. Le bouton ⤓ (« Enregistrer sous… ») fonctionne. Un `.exe` ne peut pas être ouvert directement (cadenas), seulement enregistré.
 9. [ ] **Mot de passe révoqué** : révoque le mot de passe d'application Gmail. Au prochain redémarrage d'Illy, le compte affiche le triangle orange « Mot de passe refusé ». « Mettre à jour » avec un nouveau mot de passe le remet en route.
-10. [ ] **Hors connexion** : coupe le Wi-Fi. Les mails déjà téléchargés restent lisibles. Ouvre un mail non lu, puis remets le Wi-Fi : il passe en lu dans le webmail en moins d'une minute.
+10. [ ] **Hors connexion** : coupe le Wi-Fi. Les mails déjà téléchargés restent lisibles. Ouvre un mail non lu (il reste « lu » dans Illy), puis remets le Wi-Fi : il passe en lu dans le webmail dès qu'Illy s'est reconnecté. Illy réessaie de plus en plus espacé, jusqu'à 5 minutes entre deux essais ; tu peux aussi relancer Illy pour forcer la reconnexion.
 11. [ ] **Mémoire** : dans le Gestionnaire des tâches, Illy (avec ses processus « WebView2 ») reste sous ~200 Mo au repos, une fois la synchro initiale terminée.
 12. [ ] **Démarrage** : quand les mails sont déjà synchronisés, la boîte de réception s'affiche en moins de 2 s.
+13. [ ] **Une seule fenêtre** : relancer Illy alors qu'il est déjà ouvert remet simplement la fenêtre existante au premier plan.
+14. [ ] **Antivirus** : si ton antivirus inspecte les mails (Avast, AVG, ESET, Kaspersky…), les comptes se connectent quand même.
 
 ## Où trouver les journaux en cas de problème
 
