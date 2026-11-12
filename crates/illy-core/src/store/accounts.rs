@@ -5,7 +5,7 @@ use crate::providers::color_for;
 use rusqlite::{params, OptionalExtension, Row};
 
 const COLS: &str = "id, email, display_name, provider, imap_host, imap_port, imap_tls, \
-                    smtp_host, smtp_port, smtp_tls, color, sort_order, status, last_error";
+                    smtp_host, smtp_port, smtp_tls, color, sort_order, status, last_error, signature_html";
 
 fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
     Ok(Account {
@@ -19,6 +19,7 @@ fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
         sort_order: r.get(11)?,
         status: dec(&r.get::<_, String>(12)?)?,
         last_error: r.get(13)?,
+        signature_html: r.get(14)?,
     })
 }
 
@@ -84,6 +85,55 @@ impl Store {
         })
     }
 
+    /// Nouvel ordre des comptes : `ids` doit contenir chaque compte exactement une fois.
+    pub fn reorder_accounts(&self, ids: &[AccountId]) -> Result<Vec<Account>> {
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            let mut known: Vec<AccountId> =
+                tx.prepare("SELECT id FROM accounts")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+            let mut given = ids.to_vec();
+            known.sort_unstable();
+            given.sort_unstable();
+            if known != given {
+                return Err(CoreError::InvalidInput("ordre des comptes invalide".into()));
+            }
+            for (i, id) in ids.iter().enumerate() {
+                tx.execute("UPDATE accounts SET sort_order = ?1 WHERE id = ?2", params![i as i64, id])?;
+            }
+            tx.commit()?;
+            Ok(())
+        })?;
+        self.list_accounts()
+    }
+
+    /// Applique les champs fournis (déjà validés par le cœur).
+    pub fn update_account(&self, id: AccountId, p: &AccountPatch) -> Result<Account> {
+        self.with(|c| {
+            let n = c.execute(
+                "UPDATE accounts SET display_name = COALESCE(?1, display_name), color = COALESCE(?2, color), \
+                 signature_html = COALESCE(?3, signature_html) WHERE id = ?4",
+                params![p.display_name, p.color, p.signature_html, id],
+            )?;
+            if n == 0 {
+                return Err(CoreError::NotFound);
+            }
+            Ok(())
+        })?;
+        self.get_account(id)
+    }
+
+    pub fn update_servers(&self, id: AccountId, imap: &ServerConfig, smtp: &ServerConfig) -> Result<Account> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE accounts SET imap_host = ?1, imap_port = ?2, imap_tls = ?3, smtp_host = ?4, smtp_port = ?5, smtp_tls = ?6 \
+                 WHERE id = ?7",
+                params![imap.host, imap.port, enc(&imap.tls), smtp.host, smtp.port, enc(&smtp.tls), id],
+            )?;
+            Ok(())
+        })?;
+        self.get_account(id)
+    }
+
     pub fn delete_account(&self, id: AccountId) -> Result<()> {
         self.with(|c| {
             c.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
@@ -147,5 +197,44 @@ pub(crate) mod tests {
         s.delete_account(a.id).unwrap();
         assert!(s.list_folders(a.id).unwrap().is_empty());
         assert!(s.list_accounts().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reorder_sets_sort_order() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let b = s.insert_account(&new_account("b@x.fr")).unwrap().id;
+        let c = s.insert_account(&new_account("c@x.fr")).unwrap().id;
+        let list = s.reorder_accounts(&[c, a, b]).unwrap();
+        assert_eq!(list.iter().map(|x| x.id).collect::<Vec<_>>(), [c, a, b]);
+        assert_eq!(list.iter().map(|x| x.sort_order).collect::<Vec<_>>(), [0, 1, 2]);
+    }
+
+    #[test]
+    fn reorder_rejects_unknown_or_missing_ids() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let b = s.insert_account(&new_account("b@x.fr")).unwrap().id;
+        for bad in [vec![a], vec![a, b, 99], vec![a, a]] {
+            assert!(matches!(s.reorder_accounts(&bad), Err(crate::CoreError::InvalidInput(_))), "{bad:?}");
+        }
+        assert_eq!(s.list_accounts().unwrap().iter().map(|x| x.id).collect::<Vec<_>>(), [a, b], "nothing changed");
+    }
+
+    #[test]
+    fn update_account_fields() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let got = s
+            .update_account(a, &AccountPatch { display_name: Some("Élodie".into()), color: None, signature_html: Some("<p>Bises</p>".into()) })
+            .unwrap();
+        assert_eq!(got.display_name, "Élodie");
+        assert_eq!(got.color, "#8B5CF6", "untouched");
+        assert_eq!(got.signature_html, "<p>Bises</p>");
+        assert_eq!(s.account_signature(a).unwrap(), "<p>Bises</p>");
+        let sc = ServerConfig { host: "ssl0.ovh.net".into(), port: 993, tls: TlsMode::Implicit };
+        let got = s.update_servers(a, &sc, &ServerConfig { port: 465, ..sc.clone() }).unwrap();
+        assert_eq!(got.imap.host, "ssl0.ovh.net");
+        assert_eq!(got.smtp.port, 465);
     }
 }

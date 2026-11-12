@@ -155,6 +155,15 @@ impl Store {
         })
     }
 
+    /// Brouillons d'un compte (pour effacer leurs fichiers avec le compte).
+    pub fn drafts_of_account(&self, account: AccountId) -> Result<Vec<Draft>> {
+        self.with_read(|c| {
+            let mut st = c.prepare(&format!("SELECT {COLS} FROM drafts WHERE account_id = ?1"))?;
+            let rows = st.query_map([account], row_to_draft)?.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
     /// Brouillon local dont la copie serveur a cet UID (dans le dossier Brouillons du compte).
     pub fn draft_by_remote_uid(&self, account: AccountId, uid: u32) -> Result<Option<Draft>> {
         self.with_read(|c| {

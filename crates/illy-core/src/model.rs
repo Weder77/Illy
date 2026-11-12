@@ -64,6 +64,17 @@ pub struct Account {
     pub sort_order: i64,
     pub status: AccountStatus,
     pub last_error: Option<String>,
+    /// Signature HTML (nettoyée), ajoutée aux nouveaux mails et réponses.
+    pub signature_html: String,
+}
+
+/// Modification partielle d'un compte (Paramètres → Comptes).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountPatch {
+    pub display_name: Option<String>,
+    pub color: Option<String>,
+    pub signature_html: Option<String>,
 }
 
 /// L'ordre de déclaration est l'ordre d'affichage.

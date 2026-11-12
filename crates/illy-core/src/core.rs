@@ -148,10 +148,66 @@ impl Core {
         Ok(())
     }
 
+    /// Supprime le compte de ce PC : mails, dossiers, brouillons (et leurs fichiers), actions en attente.
+    /// Rien n'est effacé sur le serveur.
     pub fn remove_account(&self, account: AccountId) -> Result<()> {
         self.manager.stop(account);
+        let drafts = self.store.drafts_of_account(account)?;
         self.secrets.delete(account)?;
-        self.store.delete_account(account)
+        self.store.delete_account(account)?;
+        for d in drafts {
+            self.last_upload.lock().unwrap().remove(&d.id);
+            let _ = std::fs::remove_dir_all(self.drafts_dir.join(d.id.to_string()));
+            if matches!(d.state, DraftState::Queued | DraftState::Sending | DraftState::Failed) {
+                self.events.emit(CoreEvent::OutboxChanged { draft_id: d.id, state: DraftState::Editing, send_at: None, error: None });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn reorder_accounts(&self, ids: Vec<AccountId>) -> Result<Vec<Account>> {
+        self.store.reorder_accounts(&ids)
+    }
+
+    /// Nom affiché, couleur et signature (nettoyée comme un mail ; les images collées sont gardées).
+    pub fn update_account(&self, id: AccountId, patch: AccountPatch) -> Result<Account> {
+        let display_name = match patch.display_name {
+            Some(n) if n.trim().is_empty() => return Err(CoreError::InvalidInput("Le nom affiché ne peut pas être vide.".into())),
+            Some(n) => Some(n.trim().to_string()),
+            None => None,
+        };
+        let valid_color = |c: &str| c.len() == 7 && c.starts_with('#') && c[1..].chars().all(|x| x.is_ascii_hexdigit());
+        if let Some(c) = &patch.color {
+            if !valid_color(c) {
+                return Err(CoreError::InvalidInput(format!("couleur invalide : {c}")));
+            }
+        }
+        let signature_html = patch
+            .signature_html
+            .map(|h| crate::mime::sanitize_html(&h, &std::collections::HashMap::new()).html);
+        self.store.update_account(id, &AccountPatch { display_name, color: patch.color, signature_html })
+    }
+
+    /// Nouveaux serveurs (OVH, comptes manuels) : testés avec le mot de passe enregistré avant d'être gardés.
+    pub async fn update_servers(&self, id: AccountId, imap: ServerConfig, smtp: ServerConfig) -> Result<Account> {
+        let acc = self.store.get_account(id)?;
+        if matches!(acc.provider, Provider::Gmail | Provider::Yahoo) {
+            return Err(CoreError::InvalidInput("Les serveurs de ce fournisseur ne se modifient pas.".into()));
+        }
+        let candidate = validate(&NewAccount {
+            email: acc.email.clone(),
+            display_name: acc.display_name.clone(),
+            provider: acc.provider,
+            imap,
+            smtp,
+        })?;
+        let password = self.secrets.get(id)?.ok_or_else(|| CoreError::Auth("mot de passe absent du trousseau".into()))?;
+        let (mut session, _) = connect(&candidate.imap, &acc.email, &password).await?;
+        let _ = session.logout().await;
+        test_smtp(&candidate.smtp, &acc.email, &password).await?;
+        let updated = self.store.update_servers(id, &candidate.imap, &candidate.smtp)?;
+        self.manager.restart(id);
+        Ok(updated)
     }
 
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
