@@ -203,6 +203,73 @@ pub fn set_setting(core: State<'_, Core>, key: String, value: serde_json::Value)
     core.set_setting(&key, value)
 }
 
+// --- Paramètres ---
+
+#[tauri::command(async)]
+pub fn reorder_accounts(core: State<'_, Core>, ids: Vec<AccountId>) -> R<Vec<Account>> {
+    core.reorder_accounts(ids)
+}
+
+#[tauri::command(async)]
+pub fn update_account(core: State<'_, Core>, account_id: AccountId, patch: AccountPatch) -> R<Account> {
+    core.update_account(account_id, patch)
+}
+
+#[tauri::command]
+pub async fn update_servers(core: State<'_, Core>, account_id: AccountId, imap: ServerConfig, smtp: ServerConfig) -> R<Account> {
+    core.update_servers(account_id, imap, smtp).await
+}
+
+#[tauri::command(async)]
+pub fn remove_account(core: State<'_, Core>, account_id: AccountId) -> R<()> {
+    core.remove_account(account_id)
+}
+
+#[tauri::command(async)]
+pub fn list_image_allowlist(core: State<'_, Core>) -> R<Vec<String>> {
+    core.list_image_allowlist()
+}
+
+#[tauri::command(async)]
+pub fn remove_from_image_allowlist(core: State<'_, Core>, sender: String) -> R<()> {
+    core.remove_from_image_allowlist(&sender)
+}
+
+#[tauri::command(async)]
+pub fn storage_usage(core: State<'_, Core>) -> R<StorageUsage> {
+    core.storage_usage()
+}
+
+#[tauri::command]
+pub async fn clear_cache(core: State<'_, Core>) -> R<()> {
+    core.clear_cache().await
+}
+
+fn logs_dir() -> R<PathBuf> {
+    crate::data_dir().map(|d| d.join("logs")).map_err(CoreError::InvalidInput)
+}
+
+/// Ouvre le dossier des journaux dans l'Explorateur.
+#[tauri::command(async)]
+pub fn open_logs_folder(app: AppHandle) -> R<()> {
+    let dir = logs_dir()?;
+    app.opener()
+        .open_path(dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| CoreError::InvalidInput(format!("impossible d'ouvrir le dossier : {e}")))
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppInfo {
+    version: String,
+    logs_dir: String,
+}
+
+#[tauri::command(async)]
+pub fn app_info(app: AppHandle) -> R<AppInfo> {
+    Ok(AppInfo { version: app.package_info().version.to_string(), logs_dir: logs_dir()?.to_string_lossy().to_string() })
+}
+
 pub fn compose_label(draft_id: DraftId) -> String {
     format!("compose-{draft_id}")
 }

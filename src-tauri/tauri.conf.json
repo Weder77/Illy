@@ -56,6 +56,18 @@
         ],
         "displayLanguageSelector": false
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDExOEZGRDVERDBEMjNGRUYKUldUdlA5TFFYZjJQRWFDc1oxVXMvS3FLV0U2RFp3VUtWM3lWNkk4UysvZUJhckZUMHdJbUpaTVAK",
+      "endpoints": [
+        "https://github.com/Weder77/Illy/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

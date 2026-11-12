@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-only",
+  "description": "Mises à jour d'Illy : réservées à la fenêtre principale",
+  "windows": ["main"],
+  "permissions": ["updater:default", "process:allow-restart"]
+}

@@ -28,7 +28,7 @@ pub struct DroppedFiles(pub Mutex<HashSet<PathBuf>>);
 /// Garde du journal : doit vivre aussi longtemps que l'application.
 struct LogGuard(#[allow(dead_code)] tracing_appender::non_blocking::WorkerGuard);
 
-fn data_dir() -> Result<PathBuf, String> {
+pub(crate) fn data_dir() -> Result<PathBuf, String> {
     let base = directories::BaseDirs::new().ok_or("dossier utilisateur introuvable")?;
     Ok(base.data_local_dir().join("Illy"))
 }
@@ -73,6 +73,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(DroppedFiles::default())
         .on_webview_event(|webview, event| {
             if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
@@ -146,6 +148,16 @@ pub fn run() {
             commands::get_settings,
             commands::set_setting,
             commands::open_compose_window,
+            commands::reorder_accounts,
+            commands::update_account,
+            commands::update_servers,
+            commands::remove_account,
+            commands::list_image_allowlist,
+            commands::remove_from_image_allowlist,
+            commands::storage_usage,
+            commands::clear_cache,
+            commands::open_logs_folder,
+            commands::app_info,
         ])
         .run(tauri::generate_context!())
         .expect("échec du démarrage d'Illy");

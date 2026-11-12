@@ -20,30 +20,33 @@ npx @tauri-apps/cli@2 signer generate -w "$env:USERPROFILE\.tauri\illy.key"
   - `illy.key.pub` : la clé **publique**, que tu peux partager.
 - **Sauvegarde `illy.key` et son mot de passe** (gestionnaire de mots de passe, clé USB…). Si tu la perds, les versions suivantes ne pourront plus se mettre à jour toutes seules : il faudra réinstaller Illy à la main une fois, avec une nouvelle clé.
 
-### 2. Mettre la clé privée dans GitHub
+### 2. Mettre la clé privée dans GitHub (fait)
 
-Copie la clé privée dans le presse-papiers :
-
-```powershell
-Get-Content "$env:USERPROFILE\.tauri\illy.key" -Raw | Set-Clipboard
-```
-
-Sur GitHub : dépôt **Weder77/Illy** → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**. Crée deux secrets :
+Les deux secrets sont dans l'**environnement** `PRD` du dépôt (**Settings** → **Environments** → **PRD**), avec les règles de déploiement « branche `main` » et « tags `v*` » :
 
 | Nom | Valeur |
 |---|---|
-| `TAURI_SIGNING_PRIVATE_KEY` | colle le presse-papiers (tout le contenu de `illy.key`) |
+| `TAURI_SIGNING_PRIVATE_KEY` | tout le contenu de `illy.key` |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | le mot de passe choisi à l'étape 1 |
 
-Toujours dans **Settings** → **Actions** → **General** → **Workflow permissions** : coche **Read and write permissions**, puis **Save**. C'est ce qui permet à la CI de créer les releases.
+Seul le workflow **Release** (`.github/workflows/release.yml`) déclare `environment: PRD` : la CI des branches ne voit jamais la clé. Dans **Settings** → **Actions** → **General** → **Workflow permissions**, **Read and write permissions** doit être coché (création des releases).
 
-### 3. Me donner la clé publique
+### 3. Me donner la clé publique (fait)
 
 ```powershell
 Get-Content "$env:USERPROFILE\.tauri\illy.key.pub" -Raw | Set-Clipboard
 ```
 
-Colle-la dans la conversation. Elle est publique, il n'y a aucun risque : elle sert seulement à vérifier les signatures, et elle sera inscrite dans `src-tauri/tauri.conf.json`.
+Colle-la dans la conversation. Elle est publique, il n'y a aucun risque : elle sert seulement à vérifier les signatures. Elle est inscrite dans `src-tauri/tauri.conf.json` (`plugins.updater.pubkey`).
+
+## Première installation avec les mises à jour (une seule fois)
+
+La première version qui contient le module de mise à jour (0.3.0) s'installe à la main :
+
+1. Désinstalle l'ancienne version d'Illy (Paramètres Windows → Applications). Tes comptes, mails et réglages restent dans `%LOCALAPPDATA%\Illy\` et sont retrouvés.
+2. Sur la page de la release GitHub, télécharge et lance **`Illy_0.3.0_x64-setup.exe`** (l'installateur `.exe`, pas le `.msi` : c'est lui que les mises à jour utilisent, sans demande d'administrateur).
+
+Les versions suivantes se proposent toutes seules.
 
 ## Publier une nouvelle version
 
@@ -55,7 +58,10 @@ Colle-la dans la conversation. Elle est publique, il n'y a aucun risque : elle s
    ```powershell
    git commit -am "version 0.3.1"
    git tag v0.3.1
-   git push --follow-tags
+   git push
+   git push origin v0.3.1
    ```
-3. La CI (workflow **Release**) compile, signe et publie la release GitHub, avec les installateurs et `latest.json`. Compte environ 10 minutes.
-4. Au prochain démarrage, Illy affiche « Illy 0.3.1 est disponible · Installer ».
+3. La CI (workflow **Release**) vérifie que le tag correspond à la version, compile, signe et publie la release GitHub, avec les installateurs et `latest.json`. Compte environ 15 minutes.
+4. Au prochain démarrage (10 s après), ou par **Paramètres → Mises à jour → Rechercher**, Illy affiche « Illy 0.3.1 est disponible · Installer · Plus tard ». Rien ne s'installe sans ton clic.
+
+Le tag peut être posé sur la branche de travail : la règle « tags `v*` » de l'environnement `PRD` l'autorise.

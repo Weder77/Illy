@@ -1,0 +1,51 @@
+name: Release
+
+# Un tag v* (par exemple v0.3.1) publie une release GitHub signée : installateurs + latest.json.
+# Les secrets de signature vivent dans l'environnement « PRD » (règles : branche main, tags v*).
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publier la release Windows
+    runs-on: windows-latest
+    environment: PRD
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vérifier que le tag correspond à la version
+        shell: bash
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Le tag $GITHUB_REF_NAME ne correspond pas à la version $version (node scripts/bump-version.mjs ${GITHUB_REF_NAME#v})."
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Illy ${{ github.ref_name }}'
+          releaseBody: 'Installe le fichier « Illy_…_x64-setup.exe ». Les versions déjà installées proposent la mise à jour toutes seules.'
+          releaseDraft: false
+          prerelease: false
+          # Les mises à jour passent par l'installateur NSIS (installation par utilisateur, sans demande d'administrateur).
+          updaterJsonPreferNsis: true

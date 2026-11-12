@@ -46,7 +46,8 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run tauri build
+      # Pas de signature hors release (les secrets ne sont accessibles qu'au workflow Release).
+      - run: npm run tauri build -- --config src-tauri/tauri.ci.conf.json
       - uses: actions/upload-artifact@v4
         with:
           name: illy-windows
