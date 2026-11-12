@@ -349,6 +349,8 @@ Les logs (`tracing`, fichiers en rotation) enregistrent les événements de sync
 
 ## 12. Jalons
 
+> Mis à jour le 2026-11-12 : l'ordre et le contenu des lots suivants sont définis au § 6 de `2026-11-12-illy-redaction-parametres-design.md` (A rédaction, B paramètres et mises à jour, C actions, D recherche).
+
 Chaque jalon a son propre plan d'implémentation et se termine par une version utilisable.
 
 | # | Jalon | Terminé quand… |
