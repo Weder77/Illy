@@ -104,3 +104,55 @@ pub fn simple_eml(n: u32) -> Vec<u8> {
     )
     .into_bytes()
 }
+
+use illy_core::model::{AccountId, FolderId, FolderRole, NewAccount, Provider};
+use illy_core::store::Store;
+
+impl GreenMail {
+    pub fn new_account(&self) -> NewAccount {
+        NewAccount {
+            email: USER.into(),
+            display_name: "Alice".into(),
+            provider: Provider::Custom,
+            imap: self.imap(),
+            smtp: self.smtp(),
+        }
+    }
+
+    /// Base en mémoire avec le compte GreenMail et ses dossiers ; renvoie l'id de la boîte de réception.
+    pub async fn store_with_folders(&self) -> (Store, AccountId, FolderId) {
+        let store = Store::open_in_memory().unwrap();
+        let acc = store.insert_account(&self.new_account()).unwrap();
+        let mut s = self.session().await;
+        let folders = illy_core::imap::list_folders(&mut s).await.unwrap();
+        store.upsert_folders(acc.id, &folders).unwrap();
+        let inbox = store.syncable_folders(acc.id).unwrap().into_iter().find(|f| f.2 == FolderRole::Inbox).unwrap().0;
+        (store, acc.id, inbox)
+    }
+
+    /// Supprime définitivement un mail côté serveur (helper « autre client »).
+    pub async fn delete_on_server(&self, folder: &str, uid: u32) {
+        use futures::TryStreamExt;
+        let mut s = self.session().await;
+        s.select(folder).await.unwrap();
+        let _: Vec<_> = s.uid_store(uid.to_string(), "+FLAGS (\\Deleted)").await.unwrap().try_collect().await.unwrap();
+        let _: Vec<_> = s.expunge().await.unwrap().try_collect().await.unwrap();
+        let _ = s.logout().await;
+    }
+
+    /// Marque lu côté serveur (helper « autre client »).
+    pub async fn mark_seen_on_server(&self, folder: &str, uid: u32) {
+        use futures::TryStreamExt;
+        let mut s = self.session().await;
+        s.select(folder).await.unwrap();
+        let _: Vec<_> = s.uid_store(uid.to_string(), "+FLAGS (\\Seen)").await.unwrap().try_collect().await.unwrap();
+        let _ = s.logout().await;
+    }
+
+    pub async fn server_flags(&self, folder: &str) -> Vec<(u32, bool, bool)> {
+        let mut s = self.session().await;
+        illy_core::imap::select(&mut s, folder, false).await.unwrap();
+        let uids = illy_core::imap::search_all_uids(&mut s).await.unwrap();
+        illy_core::imap::fetch_flags(&mut s, &illy_core::imap::uid_set(&uids), None).await.unwrap()
+    }
+}

@@ -76,7 +76,7 @@ pub(crate) fn dec<T: DeserializeOwned>(s: &str) -> rusqlite::Result<T> {
     })
 }
 
-pub(crate) fn now_ts() -> i64 {
+pub fn now_ts() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
