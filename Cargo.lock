@@ -1943,6 +1943,7 @@ dependencies = [
  "ammonia",
  "async-imap",
  "base64 0.22.1",
+ "chrono",
  "encoding_rs",
  "futures",
  "html-escape",

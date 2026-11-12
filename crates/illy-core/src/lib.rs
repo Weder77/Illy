@@ -1,5 +1,6 @@
 //! Cœur d'Illy : stockage local, IMAP, synchro, analyse MIME.
 
+pub mod compose;
 pub mod core;
 pub mod error;
 pub mod events;

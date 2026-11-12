@@ -157,6 +157,81 @@ pub struct ProviderGuess {
     pub smtp: Option<ServerConfig>,
 }
 
+pub type DraftId = i64;
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftKind {
+    New,
+    Reply,
+    ReplyAll,
+    Forward,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DraftState {
+    Editing,
+    Queued,
+    Sending,
+    Sent,
+    Failed,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", rename_all_fields = "camelCase")]
+pub enum AttachmentSource {
+    File { path: String },
+    Part { message_id: MessageId, part_path: String },
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftAttachment {
+    pub filename: String,
+    pub mime_type: String,
+    pub size: u64,
+    pub source: AttachmentSource,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Draft {
+    pub id: DraftId,
+    pub account_id: AccountId,
+    pub kind: DraftKind,
+    pub source_message_id: Option<MessageId>,
+    pub to: Vec<Address>,
+    pub cc: Vec<Address>,
+    pub bcc: Vec<Address>,
+    pub subject: String,
+    pub body_html: String,
+    pub attachments: Vec<DraftAttachment>,
+    pub state: DraftState,
+    pub last_error: Option<String>,
+    pub send_at: Option<i64>,
+    pub remote_uid: Option<u32>,
+    pub updated_at: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftInput {
+    pub id: DraftId,
+    pub account_id: AccountId,
+    pub to: Vec<Address>,
+    pub cc: Vec<Address>,
+    pub bcc: Vec<Address>,
+    pub subject: String,
+    pub body_html: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SendTicket {
+    pub send_at: i64,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoteImages {

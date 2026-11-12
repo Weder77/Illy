@@ -2,6 +2,7 @@
 
 mod accounts;
 mod contacts;
+mod drafts;
 mod allowlist;
 mod folders;
 mod messages;
