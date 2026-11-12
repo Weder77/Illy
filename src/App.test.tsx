@@ -1,7 +1,10 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders app root', () => {
+test('renders three panels and title', async () => {
   render(<App />);
-  expect(screen.getByTestId('app-root')).toBeInTheDocument();
+  expect(screen.getByText('Illy')).toBeInTheDocument();
+  expect(screen.getByTestId('panel-sidebar')).toBeInTheDocument();
+  expect(screen.getByTestId('panel-list')).toBeInTheDocument();
+  expect(screen.getByTestId('panel-reader')).toBeInTheDocument();
 });

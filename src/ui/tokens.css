@@ -1,0 +1,24 @@
+:root {
+  --bg: #0d0f13;
+  --panel: #16191f;
+  --raised: #1f232b;
+  --hover: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: #f2f4f8;
+  --text-soft: #c9ced6;
+  --text-2: #8b93a1;
+  --accent: #2f7bff;
+  /* Fond des boutons et pastilles à texte blanc (contraste 4,5:1). */
+  --accent-strong: #2a6ff0;
+  --accent-link: #6ea2ff;
+  --accent-glow: 0 0 18px rgba(47, 123, 255, 0.55);
+  --outline: 1px solid rgba(47, 123, 255, 0.35);
+  --warn: #f5a524;
+  --error: #f25f5c;
+  --r-panel: 20px;
+  --r-row: 12px;
+  --r-pill: 999px;
+  --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
