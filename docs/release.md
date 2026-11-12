@@ -54,7 +54,9 @@ Les versions suivantes se proposent toutes seules.
    ```powershell
    node scripts/bump-version.mjs 0.3.1
    ```
-2. Commite, crée le tag et pousse :
+2. Commite et pousse, puis publie, au choix :
+   - **depuis GitHub** : onglet **Actions** → **Publier une version** → **Run workflow** (sur la branche voulue). Il crée le tag `v0.3.1` et lance **Release** ;
+   - **depuis ton PC**, avec le tag :
    ```powershell
    git commit -am "version 0.3.1"
    git tag v0.3.1

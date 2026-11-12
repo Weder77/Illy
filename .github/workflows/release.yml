@@ -6,6 +6,8 @@ on:
   push:
     tags:
       - 'v*'
+  # Lancé par « Publier une version » sur un tag v* (jamais sur une branche : la vérification du tag le refuse).
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -25,7 +27,7 @@ jobs:
         shell: bash
         run: |
           version=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+          if [ "$GITHUB_REF_TYPE" != "tag" ] || [ "v$version" != "$GITHUB_REF_NAME" ]; then
             echo "Le tag $GITHUB_REF_NAME ne correspond pas à la version $version (node scripts/bump-version.mjs ${GITHUB_REF_NAME#v})."
             exit 1
           fi
