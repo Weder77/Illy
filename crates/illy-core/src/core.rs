@@ -24,19 +24,23 @@ pub struct Core {
     tmp_dir: PathBuf,
 }
 
-/// Nom de fichier sûr pour l'écrire sur le disque (pas de chemin, pas de caractère interdit).
+/// Nom de fichier sûr pour l'écrire sur le disque (voir `providers::safe_filename`).
 pub fn sanitize_filename(name: &str) -> String {
-    let cleaned: String = name
-        .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control() { '_' } else { c })
-        .collect();
-    let trimmed = cleaned.trim().trim_start_matches('.').trim_end_matches(['.', ' ']);
-    let mut out: String = trimmed.chars().take(120).collect();
-    if out.is_empty() {
-        out = "piece-jointe".into();
-    }
-    out
+    crate::providers::safe_filename(name)
 }
+
+/// Marque le fichier comme venant d'Internet (Windows : SmartScreen, mode protégé d'Office).
+#[cfg(windows)]
+fn mark_of_the_web(path: &Path) {
+    let mut ads = path.as_os_str().to_owned();
+    ads.push(":Zone.Identifier");
+    if let Err(e) = std::fs::write(PathBuf::from(ads), b"[ZoneTransfer]\r\nZoneId=3\r\n") {
+        tracing::warn!("marque « fichier Internet » non posée : {e}");
+    }
+}
+
+#[cfg(not(windows))]
+fn mark_of_the_web(_path: &Path) {}
 
 fn validate(input: &NewAccount) -> Result<NewAccount> {
     let email = input.email.trim().to_string();
@@ -211,12 +215,14 @@ impl Core {
         }
         let path = self.tmp_dir.join(format!("{id}-{}", sanitize_filename(&att.filename)));
         tokio::fs::write(&path, bytes).await?;
+        mark_of_the_web(&path);
         Ok(path)
     }
 
     pub async fn save_attachment(&self, id: MessageId, part_path: &str, dest: &Path) -> Result<()> {
         let (_, bytes) = self.attachment_bytes(id, part_path).await?;
         tokio::fs::write(dest, bytes).await?;
+        mark_of_the_web(dest);
         Ok(())
     }
 
@@ -239,5 +245,8 @@ mod tests {
         assert_eq!(sanitize_filename(""), "piece-jointe");
         assert_eq!(sanitize_filename("..."), "piece-jointe");
         assert!(sanitize_filename(&"x".repeat(300)).chars().count() <= 120);
+        assert_eq!(sanitize_filename("facture\u{202E}fdp.exe"), "facturefdp.exe");
+        assert_eq!(sanitize_filename("a.pdf::$DATA"), "a.pdf__$DATA");
+        assert!(!crate::providers::is_dangerous_filename("a.exe::$DATA"), "written as a.exe__$DATA: not executable");
     }
 }

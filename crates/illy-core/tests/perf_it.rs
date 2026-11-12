@@ -64,7 +64,7 @@ fn perf_100k() {
                         },
                         internal_date: 0,
                         size: 4000,
-                        seen: uid % 7 != 0,
+                        seen: !uid.is_multiple_of(7),
                         answered: false,
                         parts: vec![],
                     }
