@@ -5,13 +5,17 @@ Client mail Windows minimaliste : trois panneaux, thème sombre, **sans IA**, **
 - Comptes IMAP/SMTP : Gmail et Yahoo (mot de passe d'application), OVH, ou n'importe quel serveur.
 - Synchro rapide : les mails récents d'abord, l'historique complet en arrière-plan, les nouveaux mails en direct (IMAP IDLE).
 - Lecture sûre : HTML nettoyé et isolé, images externes bloquées par défaut, pièces jointes exécutables jamais ouvertes directement.
+- Paramètres : ordre, nom, couleur, signature et serveurs des comptes ; thème clair / sombre / automatique, accent, taille du texte, densité ; images ; délai d'annulation ; vider le cache.
+- Mises à jour : proposées au démarrage depuis les releases GitHub, signées, installées seulement après ton clic.
 - Rédaction : nouveau mail dans une fenêtre, réponse sous le mail, transfert avec les pièces jointes, carnet d'adresses automatique, brouillons copiés sur le serveur, **10 s pour annuler un envoi**, clic droit sur un mail.
 
-Specs : `docs/superpowers/specs/` · Plans : `docs/superpowers/plans/` · Vérification sur Windows : `docs/checklists/jalon-1.md`, `docs/checklists/lot-a.md` · Publier une version : `docs/release.md`.
+Specs : `docs/superpowers/specs/` · Plans : `docs/superpowers/plans/` · Vérification sur Windows : `docs/checklists/jalon-1.md`, `docs/checklists/lot-a.md`, `docs/checklists/lot-b.md` · Publier une version : `docs/release.md`.
 
 ## Installer (Windows)
 
-Chaque push sur GitHub fait compiler l'installateur par la CI (job « Installateur Windows ») : télécharge l'artefact **illy-windows** depuis l'onglet Actions, puis lance le `.msi` ou le `.exe`.
+Les versions publiées sont sur la page **Releases** du dépôt : lance `Illy_<version>_x64-setup.exe`. Les mises à jour suivantes se proposent toutes seules (voir `docs/release.md`).
+
+Version de test : chaque push fait aussi compiler l'installateur par la CI (job « Installateur Windows », artefact **illy-windows** dans l'onglet Actions).
 
 ## Développer
 

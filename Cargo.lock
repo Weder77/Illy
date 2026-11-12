@@ -1973,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "illy-app"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "directories",
  "illy-core",
@@ -1994,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "illy-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "ammonia",
  "async-imap",
