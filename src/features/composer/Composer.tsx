@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { api } from '../../api';
 import { errorMessage, type Address, type Draft, type DraftAttachment, type DraftInput } from '../../api/types';
 import { useAppStore } from '../../state/store';
-import { IconClose, IconSend, IconTrash } from '../../ui/icons';
+import { IconChevronDown, IconClose, IconSend, IconTrash } from '../../ui/icons';
 import { AttachmentList } from './AttachmentList';
 import { ForwardBlock, QuoteBlock, replaceSignature, SendShortcut, SignatureBlock } from './blocks';
 import styles from './Composer.module.css';
@@ -237,19 +237,22 @@ function ComposerForm({ initial, variant, onClosed }: { initial: Draft } & Omit<
             De
           </label>
           <span className={styles.accountDot} style={{ background: account?.color ?? 'var(--text-2)' }} aria-hidden="true" />
-          <select
-            id={`from-${id}`}
-            className={styles.fromSelect}
-            value={values.accountId}
-            onChange={(e) => changeAccount(Number(e.target.value))}
-          >
-            {accounts.length === 0 && <option value={values.accountId}>…</option>}
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.displayName ? `${a.displayName} <${a.email}>` : a.email}
-              </option>
-            ))}
-          </select>
+          <div className={styles.fromWrap}>
+            <select
+              id={`from-${id}`}
+              className={styles.fromSelect}
+              value={values.accountId}
+              onChange={(e) => changeAccount(Number(e.target.value))}
+            >
+              {accounts.length === 0 && <option value={values.accountId}>…</option>}
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.displayName ? `${a.displayName} <${a.email}>` : a.email}
+                </option>
+              ))}
+            </select>
+            <IconChevronDown size={14} className={styles.fromChevron} />
+          </div>
           {variant === 'inline' && (
             <button type="button" className={styles.iconBtn} aria-label="Fermer la réponse" title="Fermer (le brouillon est gardé)" onClick={onClosed}>
               <IconClose size={16} />

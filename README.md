@@ -5,8 +5,9 @@ Client mail Windows minimaliste : trois panneaux, thème sombre, **sans IA**, **
 - Comptes IMAP/SMTP : Gmail et Yahoo (mot de passe d'application), OVH, ou n'importe quel serveur.
 - Synchro rapide : les mails récents d'abord, l'historique complet en arrière-plan, les nouveaux mails en direct (IMAP IDLE).
 - Lecture sûre : HTML nettoyé et isolé, images externes bloquées par défaut, pièces jointes exécutables jamais ouvertes directement.
+- Rédaction : nouveau mail dans une fenêtre, réponse sous le mail, transfert avec les pièces jointes, carnet d'adresses automatique, brouillons copiés sur le serveur, **10 s pour annuler un envoi**, clic droit sur un mail.
 
-Spec : `docs/superpowers/specs/2026-11-11-illy-client-mail-design.md` · Plan du jalon 1 : `docs/superpowers/plans/` · Vérification sur Windows : `docs/checklists/jalon-1.md`.
+Specs : `docs/superpowers/specs/` · Plans : `docs/superpowers/plans/` · Vérification sur Windows : `docs/checklists/jalon-1.md`, `docs/checklists/lot-a.md` · Publier une version : `docs/release.md`.
 
 ## Installer (Windows)
 
@@ -24,6 +25,7 @@ npm test                    # tests de l'interface
 scripts/fetch-greenmail.sh  # serveur mail de test
 cargo test -p illy-core --features insecure-plain   # tests du cœur (dont intégration IMAP/SMTP)
 npm run tauri build         # installateur (sous Windows)
+node scripts/bump-version.mjs 0.2.1  # même version partout (voir docs/release.md)
 ```
 
 ## Organisation
@@ -32,4 +34,4 @@ npm run tauri build         # installateur (sous Windows)
 - `src-tauri` : application Tauri (commandes, événements, fenêtre, installateur).
 - `src` : interface React + TypeScript (`api/` est le seul point de contact avec le cœur).
 
-Données locales : `%LOCALAPPDATA%\Illy\` (`illy.db`, `logs\`, `tmp\`). Mots de passe : Gestionnaire d'identification Windows.
+Données locales : `%LOCALAPPDATA%\Illy\` (`illy.db`, `logs\`, `tmp\`, `drafts\` pour les pièces jointes des brouillons). Mots de passe : Gestionnaire d'identification Windows.

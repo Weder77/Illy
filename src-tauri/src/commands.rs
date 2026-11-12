@@ -210,6 +210,7 @@ pub fn open_compose_window(app: AppHandle, draft_id: DraftId) -> R<()> {
         .title("Nouveau mail")
         .inner_size(760.0, 640.0)
         .min_inner_size(560.0, 420.0)
+        .center()
         .decorations(false)
         .build()
         .map(|_| ())
