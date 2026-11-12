@@ -21,6 +21,37 @@
   place-items: center;
   cursor: pointer;
 }
+.tool:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.toolText {
+  margin-left: auto;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.toolText:hover {
+  background: var(--hover);
+}
+.resume {
+  display: inline-flex;
+  margin-top: 16px;
+  height: 38px;
+  align-items: center;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  border: 1px solid rgba(47, 123, 255, 0.4);
+  background: rgba(47, 123, 255, 0.1);
+  color: var(--accent-link);
+  font-weight: 700;
+  cursor: pointer;
+}
 .tool:disabled {
   opacity: 0.4;
   cursor: default;

@@ -10,11 +10,23 @@ export function MessageRow(props: {
   accountColor?: string;
   style: CSSProperties;
   onSelect: (id: number) => void;
+  onContextMenu?: (id: number, at: { x: number; y: number }) => void;
 }) {
   const { m } = props;
   const cls = [styles.row, props.selected ? styles.selected : '', m.seen ? '' : styles.unread].join(' ');
   return (
-    <div role="option" aria-selected={props.selected} className={cls} style={props.style} onClick={() => props.onSelect(m.id)}>
+    <div
+      role="option"
+      aria-selected={props.selected}
+      className={cls}
+      style={props.style}
+      onClick={() => props.onSelect(m.id)}
+      onContextMenu={(e) => {
+        if (!props.onContextMenu) return;
+        e.preventDefault();
+        props.onContextMenu(m.id, { x: e.clientX, y: e.clientY });
+      }}
+    >
       <div className={styles.line}>
         {props.accountColor && (
           <span data-testid="account-dot" className={styles.accountDot} style={{ background: props.accountColor }} />

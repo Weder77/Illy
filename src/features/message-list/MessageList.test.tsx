@@ -6,6 +6,7 @@ const fake = vi.hoisted(() => ({
   countMessages: vi.fn(),
   listMessages: vi.fn(),
   selectFolder: vi.fn().mockResolvedValue(undefined),
+  createDraft: vi.fn(),
 }));
 vi.mock('../../api', () => ({ api: fake }));
 
@@ -84,4 +85,19 @@ test('unified view shows account dots', async () => {
   render(<MessageList />);
   await screen.findByText('Sujet 1');
   expect(screen.getAllByTestId('account-dot')).toHaveLength(3);
+});
+
+test('right click opens menu with reply actions', async () => {
+  fake.createDraft.mockReset().mockResolvedValue({ id: 55 });
+  render(<MessageList />);
+  fireEvent.contextMenu(await screen.findByText('Sujet 3'), { clientX: 40, clientY: 50 });
+  expect(useAppStore.getState().selection.messageId).toBe(3);
+  const menu = screen.getByRole('menu');
+  expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Répondre', 'Répondre à tous', 'Transférer']);
+  fireEvent.keyDown(menu, { key: 'ArrowDown' });
+  fireEvent.keyDown(menu, { key: 'ArrowDown' });
+  fireEvent.keyDown(menu, { key: 'Enter' });
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  await vi.waitFor(() => expect(useAppStore.getState().replyTarget).toEqual({ messageId: 3, draftId: 55 }));
+  expect(fake.createDraft).toHaveBeenCalledWith('forward', undefined, 3);
 });

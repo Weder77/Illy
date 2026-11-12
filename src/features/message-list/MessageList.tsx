@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Key
 import { api } from '../../api';
 import type { MessageSummary } from '../../api/types';
 import { useAppStore } from '../../state/store';
+import { ContextMenu } from '../../ui/ContextMenu';
+import { IconForward, IconReply, IconReplyAll } from '../../ui/icons';
 import { MessageRow } from './MessageRow';
 import { SearchBar } from './SearchBar';
 import styles from './MessageList.module.css';
@@ -17,6 +19,9 @@ export function MessageList() {
   const accounts = useAppStore((s) => s.accounts);
   const folders = useAppStore((s) => s.folders);
   const selectMessage = useAppStore((s) => s.selectMessage);
+  const openReply = useAppStore((s) => s.openReply);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   const scopeKey = scope.kind === 'folder' ? `f${scope.folderId}` : 'unified';
   const [count, setCount] = useState<number | null>(null);
@@ -153,12 +158,27 @@ export function MessageList() {
                   selected={m.id === selectedId}
                   accountColor={scope.kind === 'unified_inbox' ? colors.get(m.accountId) : undefined}
                   onSelect={selectMessage}
+                  onContextMenu={(id, at) => {
+                    selectMessage(id);
+                    setMenu(at);
+                  }}
                 />
               );
             })}
           </div>
         )}
       </div>
+      {menu && (
+        <ContextMenu
+          position={menu}
+          onClose={closeMenu}
+          items={[
+            { label: 'Répondre', icon: <IconReply size={16} />, onSelect: () => void openReply('reply') },
+            { label: 'Répondre à tous', icon: <IconReplyAll size={16} />, onSelect: () => void openReply('reply_all') },
+            { label: 'Transférer', icon: <IconForward size={16} />, onSelect: () => void openReply('forward') },
+          ]}
+        />
+      )}
     </div>
   );
 }

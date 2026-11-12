@@ -120,7 +120,11 @@ function newDraft(kind: DraftKind, accountId?: number, source?: number): Draft {
     cc: [],
     bcc: [],
     subject: src ? prefix + src.subject : '',
-    bodyHtml: src ? `<p></p><p>Le ${new Date(src.date * 1000).toLocaleString('fr-FR')}, ${src.from.name} a écrit :</p><blockquote><p>${src.snippet}</p></blockquote>` : '<p></p>',
+    bodyHtml: src
+      ? kind === 'forward'
+        ? `<p></p><div class="illy-forward"><p>---------- Message transféré ----------<br>De : ${src.from.name} &lt;${src.from.email}&gt;<br>Objet : ${src.subject}</p><p>${src.snippet}</p></div>`
+        : `<p></p><div class="illy-quote"><p>Le ${new Date(src.date * 1000).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' })}, ${src.from.name} a écrit :</p><blockquote><p>${src.snippet}</p></blockquote></div>`
+      : '<p></p>',
     attachments: kind === 'forward' && src?.hasAttachments ? [{ filename: 'devis-cuisine.pdf', mimeType: 'application/pdf', size: 253_952, source: { kind: 'part', messageId: src.id, partPath: '2' } }] : [],
     state: 'editing',
     lastError: null,

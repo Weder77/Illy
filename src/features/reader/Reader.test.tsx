@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
-import type { MessageDetail } from '../../api/types';
-import { message } from '../../test/fixtures';
+import type { Draft, MessageDetail } from '../../api/types';
+import { folder, message } from '../../test/fixtures';
 
 const fake = vi.hoisted(() => ({
   openMessage: vi.fn(),
@@ -10,6 +10,16 @@ const fake = vi.hoisted(() => ({
   saveAttachment: vi.fn().mockResolvedValue(undefined),
   openUrl: vi.fn(),
   selectFolder: vi.fn(),
+  draftForMessage: vi.fn(),
+  draftFromMessage: vi.fn(),
+  createDraft: vi.fn(),
+  openComposeWindow: vi.fn(),
+  getDraft: vi.fn(),
+  updateDraft: vi.fn(),
+  closeDraft: vi.fn(),
+  searchContacts: vi.fn(),
+  onFileDrop: vi.fn(),
+  onWindowCloseRequested: vi.fn(),
 }));
 vi.mock('../../api', () => ({ api: fake }));
 
@@ -32,7 +42,35 @@ beforeEach(() => {
   useAppStore.setState(useAppStore.getInitialState(), true);
   Object.values(fake).forEach((f) => f.mockClear());
   fake.openMessage.mockReset().mockResolvedValue(detail());
+  fake.draftForMessage.mockReset().mockResolvedValue(null);
+  fake.createDraft.mockReset().mockResolvedValue(replyDraft);
+  fake.getDraft.mockReset().mockResolvedValue(replyDraft);
+  fake.updateDraft.mockReset().mockImplementation(async (i) => ({ ...replyDraft, ...i }));
+  fake.closeDraft.mockReset().mockResolvedValue(undefined);
+  fake.searchContacts.mockReset().mockResolvedValue([]);
+  fake.onFileDrop.mockReset().mockReturnValue(() => undefined);
+  fake.onWindowCloseRequested.mockReset().mockReturnValue(() => undefined);
+  fake.draftFromMessage.mockReset().mockResolvedValue({ ...replyDraft, id: 31, kind: 'new' });
+  fake.openComposeWindow.mockReset().mockResolvedValue(undefined);
 });
+
+const replyDraft: Draft = {
+  id: 30,
+  accountId: 1,
+  kind: 'reply',
+  sourceMessageId: 7,
+  to: [{ name: 'Marie Dupont', email: 'marie@exemple.fr' }],
+  cc: [],
+  bcc: [],
+  subject: 'Re: Devis cuisine',
+  bodyHtml: '<p></p>',
+  attachments: [],
+  state: 'editing',
+  lastError: null,
+  sendAt: null,
+  remoteUid: null,
+  updatedAt: 0,
+};
 
 const select = (id = 7) => useAppStore.setState({ selection: { scope: { kind: 'unified_inbox' }, messageId: id } });
 
@@ -52,13 +90,58 @@ test('shows sender subject and date', async () => {
   expect(fake.openMessage).toHaveBeenCalledWith(7, false);
 });
 
-test('action buttons are visible but disabled', async () => {
+test('lot C actions are visible but disabled', async () => {
   select();
   render(<Reader />);
   await screen.findByRole('heading', { name: 'Devis cuisine' });
-  for (const name of ['Répondre', 'Répondre à tous', 'Transférer', 'Marquer non lu', 'Déplacer', 'Spam', 'Supprimer']) {
+  for (const name of ['Marquer non lu', 'Déplacer', 'Spam', 'Supprimer']) {
     expect(screen.getByRole('button', { name })).toBeDisabled();
   }
+});
+
+test('reply buttons enabled and open inline composer', async () => {
+  select();
+  render(<Reader />);
+  await screen.findByRole('heading', { name: 'Devis cuisine' });
+  for (const name of ['Répondre', 'Répondre à tous', 'Transférer']) {
+    expect(screen.getByRole('button', { name })).toBeEnabled();
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Répondre à tous' }));
+  expect(await screen.findByDisplayValue('Re: Devis cuisine')).toBeInTheDocument();
+  expect(fake.createDraft).toHaveBeenCalledWith('reply_all', undefined, 7);
+  expect(useAppStore.getState().replyTarget).toEqual({ messageId: 7, draftId: 30 });
+  // Fermer l'éditeur garde le brouillon.
+  fireEvent.click(screen.getByRole('button', { name: 'Fermer la réponse' }));
+  await waitFor(() => expect(fake.closeDraft).toHaveBeenCalledWith(30));
+});
+
+test('resume reply shown when a draft exists', async () => {
+  fake.draftForMessage.mockResolvedValue(replyDraft);
+  select();
+  render(<Reader />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Reprendre la réponse' }));
+  expect(fake.draftForMessage).toHaveBeenCalledWith(7);
+  expect(await screen.findByDisplayValue('Re: Devis cuisine')).toBeInTheDocument();
+  expect(fake.createDraft).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Reprendre la réponse' })).not.toBeInTheDocument();
+});
+
+test('edit draft button in drafts folder', async () => {
+  useAppStore.setState({ folders: { 1: [folder(100, 1, 'drafts', 'Brouillons')] } });
+  fake.openMessage.mockResolvedValue(detail({ summary: { ...message(7), folderId: 100, subject: 'Brouillon', seen: true } }));
+  select();
+  render(<Reader />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Modifier ce brouillon' }));
+  await waitFor(() => expect(fake.openComposeWindow).toHaveBeenCalledWith(31));
+  expect(fake.draftFromMessage).toHaveBeenCalledWith(7);
+});
+
+test('no edit draft button outside drafts', async () => {
+  useAppStore.setState({ folders: { 1: [folder(100, 1, 'drafts', 'Brouillons')] } });
+  select();
+  render(<Reader />);
+  await screen.findByRole('heading', { name: 'Devis cuisine' });
+  expect(screen.queryByRole('button', { name: 'Modifier ce brouillon' })).not.toBeInTheDocument();
 });
 
 test('images banner shows and show-images reopens with true', async () => {

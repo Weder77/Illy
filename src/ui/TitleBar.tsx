@@ -1,10 +1,14 @@
 import { api } from '../api';
-import type { Account } from '../api/types';
+import type { Account, Draft } from '../api/types';
 import { IconClose, IconMail, IconMinus, IconSquare } from './icons';
 import styles from './TitleBar.module.css';
+import { useNow } from './useNow';
 
-export function TitleBar({ accounts }: { accounts: Account[] }) {
+export function TitleBar({ accounts, outbox = [] }: { accounts: Account[]; outbox?: Draft[] }) {
   const offline = accounts.length > 0 && accounts.every((a) => a.status === 'offline');
+  const now = useNow(5000, outbox.length > 0);
+  // Envois sortis du délai d'annulation mais pas encore partis (réseau coupé, nouvelle tentative…).
+  const pending = outbox.filter((d) => d.state === 'queued' && d.sendAt != null && d.sendAt <= now).length;
   return (
     <header className={styles.bar} data-tauri-drag-region>
       <div className={styles.brand}>
@@ -13,6 +17,7 @@ export function TitleBar({ accounts }: { accounts: Account[] }) {
         </span>
         <span className={styles.name}>Illy</span>
         {offline && <span className={styles.offline}>Hors ligne</span>}
+        {pending > 0 && <span className={styles.offline}>{`${pending} envoi${pending > 1 ? 's' : ''} en attente`}</span>}
       </div>
       <div className={styles.spacer} data-tauri-drag-region />
       <div className={styles.buttons}>

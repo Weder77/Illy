@@ -36,6 +36,8 @@ export interface AppState {
   init(): Promise<void>;
   loadSettings(): Promise<void>;
   openReply(kind: Exclude<DraftKind, 'new'>): Promise<void>;
+  /** « Nouveau mail » : compte de la boîte affichée (sinon le premier), dans une fenêtre. */
+  composeNew(): Promise<void>;
   /** Rouvre un brouillon : sous le mail affiché s'il y répond, sinon dans une fenêtre. */
   reopenDraft(draft: Draft): void;
   closeReply(): void;
@@ -77,10 +79,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   async init() {
     const extras = Promise.all([
       get().loadSettings().catch(() => undefined),
-      api
-        .listOutbox()
-        .then((outbox) => set({ outbox }))
-        .catch(() => undefined),
+      (async () => set({ outbox: await api.listOutbox() }))().catch(() => undefined),
     ]);
     await get().loadAccounts();
     const accounts = get().accounts;
@@ -102,6 +101,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
     if (messageId == null) return;
     const d = await api.createDraft(kind, undefined, messageId);
     if (get().selection.messageId === messageId) set({ replyTarget: { messageId, draftId: d.id } });
+  },
+
+  async composeNew() {
+    const { scope } = get().selection;
+    const folder =
+      scope.kind === 'folder'
+        ? Object.values(get().folders)
+            .flat()
+            .find((f) => f.id === scope.folderId)
+        : undefined;
+    const d = await api.createDraft('new', folder?.accountId);
+    await api.openComposeWindow(d.id);
   },
 
   reopenDraft(draft) {

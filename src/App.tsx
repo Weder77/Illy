@@ -5,6 +5,7 @@ import { AddAccountWizard } from './features/accounts/AddAccountWizard';
 import { UpdatePasswordDialog } from './features/accounts/UpdatePasswordDialog';
 import { MessageList } from './features/message-list/MessageList';
 import { Reader } from './features/reader/Reader';
+import { SendBanner } from './features/outbox/SendBanner';
 import { Sidebar } from './features/sidebar/Sidebar';
 import { TitleBar } from './ui/TitleBar';
 import styles from './App.module.css';
@@ -17,6 +18,7 @@ export default function App() {
   const setShowWizard = useAppStore((s) => s.setShowWizard);
   const passwordDialogFor = useAppStore((s) => s.passwordDialogFor);
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
+  const outbox = useAppStore((s) => s.outbox);
 
   useEffect(() => {
     // Écoute d'abord : un statut émis pendant le chargement ne doit pas être perdu.
@@ -27,7 +29,7 @@ export default function App() {
 
   return (
     <div className={styles.window} data-testid="app-root">
-      <TitleBar accounts={accounts} />
+      <TitleBar accounts={accounts} outbox={outbox} />
       <main className={styles.panels}>
         <section className={styles.panel} data-testid="panel-sidebar" aria-label="Boîtes">
           <Sidebar />
@@ -39,6 +41,7 @@ export default function App() {
           <Reader />
         </section>
       </main>
+      <SendBanner />
       {showWizard && <AddAccountWizard onClose={() => setShowWizard(false)} />}
       {passwordDialogFor != null && (
         <UpdatePasswordDialog accountId={passwordDialogFor} onClose={() => setPasswordDialogFor(null)} />

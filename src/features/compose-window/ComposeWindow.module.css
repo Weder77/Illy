@@ -1,0 +1,17 @@
+.window {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border: var(--outline);
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 12px 12px;
+  border-radius: var(--r-panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}

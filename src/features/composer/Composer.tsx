@@ -149,13 +149,14 @@ function ComposerForm({ initial, variant, onClosed }: { initial: Draft } & Omit<
   saveAndCloseRef.current = saveAndClose;
 
   // Sous le mail : se démonter enregistre le brouillon. Le délai absorbe le double montage du mode strict.
+  const mounted = useRef(false);
   useEffect(() => {
     if (variant !== 'inline') return;
-    let alive = true;
+    mounted.current = true;
     return () => {
-      alive = false;
+      mounted.current = false;
       setTimeout(() => {
-        if (!alive) void saveAndCloseRef.current();
+        if (!mounted.current) void saveAndCloseRef.current();
       }, 0);
     };
   }, [variant]);

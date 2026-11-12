@@ -2,7 +2,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, expect, test, vi } from 'vitest';
 import { account, folder } from '../../test/fixtures';
 
-const fake = vi.hoisted(() => ({ selectFolder: vi.fn().mockResolvedValue(undefined) }));
+const fake = vi.hoisted(() => ({
+  selectFolder: vi.fn().mockResolvedValue(undefined),
+  createDraft: vi.fn(),
+  openComposeWindow: vi.fn(),
+}));
 vi.mock('../../api', () => ({ api: fake }));
 
 import { useAppStore } from '../../state/store';
@@ -68,4 +72,14 @@ test('collapsing an account hides its folders', () => {
   fireEvent.click(screen.getByRole('button', { name: /Replier moi@gmail.com/ }));
   expect(screen.queryByRole('button', { name: /Factures/ })).not.toBeInTheDocument();
   expect(JSON.parse(localStorage.getItem('illy.collapsed')!)).toEqual([1]);
+});
+
+test('Nouveau mail opens a compose window for the displayed account', async () => {
+  fake.createDraft.mockReset().mockResolvedValue({ id: 42 });
+  fake.openComposeWindow.mockReset().mockResolvedValue(undefined);
+  useAppStore.setState({ selection: { scope: { kind: 'folder', folderId: 20 }, messageId: null } });
+  render(<Sidebar />);
+  fireEvent.click(screen.getByRole('button', { name: /Nouveau mail/ }));
+  await vi.waitFor(() => expect(fake.openComposeWindow).toHaveBeenCalledWith(42));
+  expect(fake.createDraft).toHaveBeenCalledWith('new', 2);
 });

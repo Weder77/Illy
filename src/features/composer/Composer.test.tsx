@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { Account, Draft } from '../../api/types';
 
@@ -105,6 +106,21 @@ test('Ctrl+Enter sends and closes', async () => {
   expect(fake.updateDraft).toHaveBeenCalledWith(expect.objectContaining({ id: 7, subject: 'Re: Salut' }));
   expect(fake.sendDraft).toHaveBeenCalledWith(7);
   expect(fake.updateDraft.mock.invocationCallOrder[0]).toBeLessThan(fake.sendDraft.mock.invocationCallOrder[0]);
+});
+
+test('strict mode double mount does not close the draft', async () => {
+  const onClosed = vi.fn();
+  render(
+    <StrictMode>
+      <Composer draftId={7} variant="inline" onClosed={onClosed} />
+    </StrictMode>,
+  );
+  const subject = await screen.findByDisplayValue('Re: Salut');
+  await new Promise((r) => setTimeout(r, 20));
+  expect(fake.closeDraft).not.toHaveBeenCalled();
+  fireEvent.keyDown(subject, { key: 'Enter', ctrlKey: true });
+  await waitFor(() => expect(fake.sendDraft).toHaveBeenCalledWith(7));
+  expect(onClosed).toHaveBeenCalled();
 });
 
 test('text typed in the To field is kept when sending with Ctrl+Enter', async () => {

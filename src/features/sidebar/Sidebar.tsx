@@ -70,6 +70,7 @@ export function Sidebar() {
   const scope = useAppStore((s) => s.selection.scope);
   const selectScope = useAppStore((s) => s.selectScope);
   const setShowWizard = useAppStore((s) => s.setShowWizard);
+  const composeNew = useAppStore((s) => s.composeNew);
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
   const [collapsed, setCollapsed] = useState<number[]>(readCollapsed);
   const [problemFor, setProblemFor] = useState<number | null>(null);
@@ -156,7 +157,11 @@ export function Sidebar() {
         })}
       </div>
       <div className={styles.footer}>
-        <button className={styles.compose} disabled title="Disponible bientôt">
+        <button
+          className={styles.compose}
+          disabled={accounts.length === 0}
+          onClick={() => void composeNew().catch((e) => console.error('nouveau mail', e))}
+        >
           <IconPen size={16} />
           Nouveau mail
         </button>
