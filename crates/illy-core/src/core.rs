@@ -21,6 +21,21 @@ pub fn attachment_timeout(size: u64) -> Duration {
     Duration::from_secs((30 + size / 50_000).min(600))
 }
 
+fn dir_size(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|e| match e.metadata() {
+                    Ok(m) if m.is_dir() => dir_size(&e.path()),
+                    Ok(m) => m.len(),
+                    Err(_) => 0,
+                })
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 /// Au-delà, le brouillon n'est copié sur le serveur qu'à la fermeture de l'éditeur.
 const PERIODIC_UPLOAD_MAX_BYTES: u64 = 2 * 1024 * 1024;
 
@@ -256,6 +271,8 @@ impl Core {
     /// Ouvre un mail : télécharge le corps si besoin et le marque lu (localement puis sur le serveur).
     pub async fn open_message(&self, id: MessageId, show_images: bool) -> Result<MessageDetail> {
         let (account, folder, uid) = self.store.message_location(id)?;
+        // Réglage « Toujours afficher » : comme un clic sur « Afficher les images » pour chaque mail.
+        let show_images = show_images || self.store.settings()?.remote_images == RemoteImages::Always;
         let mut detail = match self.store.message_detail(id, show_images)? {
             Some(d) => d,
             None => {
@@ -274,6 +291,57 @@ impl Core {
 
     pub fn allow_images_from(&self, sender: &str) -> Result<()> {
         self.store.allow_images_from(sender)
+    }
+
+    pub fn list_image_allowlist(&self) -> Result<Vec<String>> {
+        self.store.list_image_allowlist()
+    }
+
+    pub fn remove_from_image_allowlist(&self, sender: &str) -> Result<()> {
+        self.store.remove_from_image_allowlist(sender)
+    }
+
+    pub fn storage_usage(&self) -> Result<StorageUsage> {
+        let db = self.drafts_dir.parent().map(|d| d.join("illy.db")).unwrap_or_default();
+        let database = ["", "-wal", "-shm"]
+            .iter()
+            .map(|suffix| std::fs::metadata(format!("{}{suffix}", db.display())).map(|m| m.len()).unwrap_or(0))
+            .sum();
+        Ok(StorageUsage { database, drafts: dir_size(&self.drafts_dir), temporary: dir_size(&self.tmp_dir) })
+    }
+
+    /// « Vider le cache local » : les mails seront retéléchargés. Refusé pendant un envoi.
+    pub async fn clear_cache(&self) -> Result<()> {
+        if !self.store.outbox()?.is_empty() {
+            return Err(CoreError::InvalidInput("Attends la fin des envois en cours".into()));
+        }
+        // Les numéros de mails seront réutilisés : un transfert ne doit plus pointer vers un mail du cache.
+        let drafts: Vec<Draft> =
+            self.store.list_accounts()?.iter().map(|a| self.store.drafts_of_account(a.id)).collect::<Result<Vec<_>>>()?.concat();
+        for d in &drafts {
+            if d.attachments.iter().any(|a| matches!(a.source, AttachmentSource::Part { .. })) {
+                self.copy_parts_locally(d.id).await?;
+                let d = self.store.get_draft(d.id)?;
+                if d.attachments.iter().any(|a| matches!(a.source, AttachmentSource::Part { .. })) {
+                    return Err(CoreError::InvalidInput(format!(
+                        "Le brouillon « {} » a des pièces jointes pas encore téléchargées : reconnecte-toi ou supprime-le d'abord.",
+                        d.subject
+                    )));
+                }
+            }
+        }
+        let accounts = self.store.list_accounts()?;
+        for a in &accounts {
+            self.manager.stop(a.id);
+        }
+        let r = self.store.clear_mail_cache();
+        let _ = std::fs::remove_dir_all(&self.tmp_dir);
+        std::fs::create_dir_all(&self.tmp_dir)?;
+        for a in &accounts {
+            self.manager.start(a.id);
+            self.events.emit(CoreEvent::FoldersChanged { account_id: a.id });
+        }
+        r
     }
 
     async fn attachment_bytes(&self, id: MessageId, part_path: &str) -> Result<(Attachment, Vec<u8>)> {
@@ -578,7 +646,7 @@ impl Core {
             return Err(CoreError::InvalidInput("ce mail est en cours d'envoi".into()));
         }
         if let (Some(uid), Some((folder, _))) = (d.remote_uid, self.store.folder_by_role(d.account_id, FolderRole::Drafts)?) {
-            self.store.enqueue_op(d.account_id, OpKind::DeleteRemote, serde_json::json!({"folderId": folder, "uid": uid}))?;
+            self.store.enqueue_op(d.account_id, OpKind::DeleteRemote, serde_json::json!({"folderId": folder, "uid": uid, "role": "drafts"}))?;
             let _ = self.manager.send(d.account_id, WorkerRequest::OpsAvailable).await;
         }
         self.last_upload.lock().unwrap().remove(&id);

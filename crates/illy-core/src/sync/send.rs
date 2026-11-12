@@ -283,10 +283,16 @@ pub(crate) async fn exec_append_draft(
     store.op_done(op.id)
 }
 
-pub(crate) async fn exec_delete_remote(s: &mut ImapSession, caps: &Caps, store: &Store, op: &Op) -> Result<()> {
+pub(crate) async fn exec_delete_remote(s: &mut ImapSession, caps: &Caps, store: &Store, account: &Account, op: &Op) -> Result<()> {
     let folder = op.payload["folderId"].as_i64().unwrap_or(-1);
     let uid = op.payload["uid"].as_u64().unwrap_or(0) as u32;
-    if let Ok(path) = store.folder_path(folder) {
+    // Après « Vider le cache », les numéros de dossiers changent : on retrouve Brouillons par son rôle.
+    let path = match store.folder_path(folder) {
+        Ok(p) => Some(p),
+        Err(_) if op.payload["role"] == "drafts" => store.folder_by_role(account.id, FolderRole::Drafts)?.map(|(_, p)| p),
+        Err(_) => None,
+    };
+    if let Some(path) = path {
         select(s, &path, false).await?;
         delete_uid(s, uid, caps).await?;
     }

@@ -297,3 +297,88 @@ async fn remove_account_cleans_drafts_and_ops() {
     assert!(matches!(e.core.get_draft(d.id), Err(CoreError::NotFound)));
 }
 
+async fn first_message(core: &Core, acc: i64) -> i64 {
+    assert!(wait_until(10, || inbox_count(core, acc) > 0).await);
+    core.list_messages(ListScope::Folder(inbox(core, acc).unwrap()), 0, 1).unwrap()[0].id
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn always_setting_allows_remote_images() {
+    let gm = GreenMail::start();
+    gm.append("INBOX", &fixture("inline_cid_and_pdf.eml"), false).await;
+    let e = env(gm);
+    let id = added(&e).await;
+    let m = first_message(&e.core, id).await;
+    let d = e.core.open_message(m, false).await.unwrap();
+    assert!(d.images_blocked && !d.remote_images_allowed);
+    e.core.set_setting("remote_images", serde_json::json!("always")).unwrap();
+    let d = e.core.open_message(m, false).await.unwrap();
+    assert!(!d.images_blocked && d.remote_images_allowed);
+    let illy_core::model::MessageBody::Html(h) = d.body else { panic!() };
+    assert!(h.contains(r#"src="https://t.example/p.gif""#), "{h}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clear_cache_keeps_accounts_settings_and_drafts() {
+    let gm = GreenMail::start();
+    gm.append_many("INBOX", 1, 3).await;
+    let e = env(gm);
+    let id = added(&e).await;
+    assert!(wait_until(10, || inbox_count(&e.core, id) == 3).await);
+    e.core.set_setting("theme", serde_json::json!("light")).unwrap();
+    e.core.allow_images_from("news@ex.fr").unwrap();
+    let d = e.core.create_draft(DraftKind::New, Some(id), None).await.unwrap();
+    let file = e.tmp.path().join("plan.pdf");
+    std::fs::write(&file, b"%PDF").unwrap();
+    e.core.add_attachments(d.id, vec![file]).unwrap();
+    std::fs::write(e.tmp.path().join("tmp").join("ouvert.pdf"), b"x").unwrap();
+    let before = e.core.storage_usage().unwrap();
+    assert!(before.database > 0 && before.drafts > 0 && before.temporary > 0);
+
+    e.core.clear_cache().await.unwrap();
+
+    assert_eq!(e.core.list_accounts().unwrap().len(), 1);
+    assert_eq!(e.secrets.get(id).unwrap().as_deref(), Some(PASSWORD));
+    assert_eq!(e.core.settings().unwrap().theme, illy_core::model::Theme::Light);
+    assert_eq!(e.core.list_image_allowlist().unwrap(), ["news@ex.fr"]);
+    let kept = e.core.get_draft(d.id).unwrap();
+    let illy_core::model::AttachmentSource::File { path } = &kept.attachments[0].source else { panic!() };
+    assert!(std::path::Path::new(path).exists(), "draft files kept");
+    assert_eq!(e.core.storage_usage().unwrap().temporary, 0);
+    assert!(wait_until(15, || inbox_count(&e.core, id) == 3).await, "mails come back after the resync");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clear_cache_refused_while_sending() {
+    let gm = GreenMail::start();
+    let e = env(gm);
+    let id = added(&e).await;
+    let d = e.core.create_draft(DraftKind::New, Some(id), None).await.unwrap();
+    e.core
+        .update_draft(DraftInput { id: d.id, account_id: id, to: vec![Address { name: None, email: BOB.into() }], cc: vec![], bcc: vec![], subject: "x".into(), body_html: "<p>x</p>".into() })
+        .unwrap();
+    e.core.set_setting("undo_send_seconds", serde_json::json!(30)).unwrap();
+    e.core.send_draft(d.id).await.unwrap();
+    let r = e.core.clear_cache().await;
+    assert!(matches!(&r, Err(CoreError::InvalidInput(m)) if m == "Attends la fin des envois en cours"), "{r:?}");
+    assert!(e.core.cancel_send(d.id).unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clear_cache_copies_forwarded_attachments_first() {
+    let gm = GreenMail::start();
+    gm.append("INBOX", &fixture("inline_cid_and_pdf.eml"), false).await;
+    let e = env(gm);
+    let id = added(&e).await;
+    let m = first_message(&e.core, id).await;
+    let d = e.core.create_draft(DraftKind::Forward, None, Some(m)).await.unwrap();
+    assert!(matches!(d.attachments[0].source, illy_core::model::AttachmentSource::Part { .. }));
+    e.core.clear_cache().await.unwrap();
+    let kept = e.core.get_draft(d.id).unwrap();
+    assert!(
+        kept.attachments.iter().all(|a| matches!(a.source, illy_core::model::AttachmentSource::File { .. })),
+        "message ids are reused after a clear: a forward must not point at another mail"
+    );
+    assert_eq!(kept.source_message_id, None);
+}
+

@@ -21,6 +21,22 @@ pub struct FolderSyncState {
 }
 
 impl Store {
+    /// Vide le cache des mails (dossiers, mails, parties, actions liées à un mail) et compacte la base.
+    /// Garde comptes, réglages, contacts, expéditeurs autorisés et brouillons.
+    pub fn clear_mail_cache(&self) -> Result<()> {
+        self.with(|c| {
+            c.execute_batch(
+                "BEGIN; \
+                 UPDATE drafts SET source_message_id = NULL; \
+                 DELETE FROM ops WHERE kind IN ('set_seen', 'set_answered'); \
+                 DELETE FROM folders; \
+                 COMMIT;",
+            )?;
+            c.execute_batch("VACUUM;")?;
+            Ok(())
+        })
+    }
+
     pub fn upsert_folders(&self, account: AccountId, found: &[FolderInfo]) -> Result<()> {
         self.with(|c| {
             let tx = c.transaction()?;

@@ -68,6 +68,15 @@ pub struct Account {
     pub signature_html: String,
 }
 
+/// Espace disque utilisé par Illy, en octets.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageUsage {
+    pub database: u64,
+    pub drafts: u64,
+    pub temporary: u64,
+}
+
 /// Modification partielle d'un compte (Paramètres → Comptes).
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
