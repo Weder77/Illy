@@ -157,6 +157,79 @@ pub struct ProviderGuess {
     pub smtp: Option<ServerConfig>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RemoteImages {
+    #[default]
+    Block,
+    Always,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Theme {
+    #[default]
+    Dark,
+    Light,
+    System,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Accent {
+    #[default]
+    Blue,
+    Violet,
+    Green,
+    Orange,
+    Pink,
+    Teal,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TextSize {
+    Small,
+    #[default]
+    Normal,
+    Large,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Density {
+    #[default]
+    Comfortable,
+    Compact,
+}
+
+/// Réglages de l'application (table `settings` ; une clé absente vaut sa valeur par défaut).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    pub undo_send_seconds: u32,
+    pub remote_images: RemoteImages,
+    pub theme: Theme,
+    pub accent: Accent,
+    pub text_size: TextSize,
+    pub density: Density,
+    pub show_snippet: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            undo_send_seconds: 10,
+            remote_images: RemoteImages::Block,
+            theme: Theme::Dark,
+            accent: Accent::Blue,
+            text_size: TextSize::Normal,
+            density: Density::Comfortable,
+            show_snippet: true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

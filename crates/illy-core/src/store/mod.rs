@@ -6,6 +6,7 @@ mod folders;
 mod messages;
 mod ops;
 mod schema;
+mod settings;
 
 pub use folders::{FolderInfo, FolderSyncState};
 pub use messages::NewHeader;
@@ -46,13 +47,13 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        if version < schema::SCHEMA_VERSION {
-            conn.execute_batch(&format!(
-                "BEGIN; {} PRAGMA user_version = {}; COMMIT;",
-                schema::V1,
-                schema::SCHEMA_VERSION
-            ))?;
+        let steps: [(i64, &str); 2] = [(1, schema::V1), (2, schema::V2)];
+        for (target, sql) in steps {
+            if version < target {
+                conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {target}; COMMIT;"))?;
+            }
         }
+        debug_assert_eq!(steps.len() as i64, schema::SCHEMA_VERSION);
         let conn = Arc::new(Mutex::new(conn));
         Ok(Store { read: conn.clone(), conn })
     }
@@ -103,6 +104,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migrates_v1_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("illy.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(&format!("BEGIN; {} PRAGMA user_version = 1; COMMIT;", schema::V1)).unwrap();
+            c.execute(
+                "INSERT INTO accounts (email, display_name, provider, imap_host, imap_port, imap_tls, smtp_host, smtp_port, smtp_tls, color, sort_order) \
+                 VALUES ('a@x.fr', 'A', 'custom', 'h', 993, 'implicit', 'h', 465, 'implicit', '#8B5CF6', 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        let v: i64 = s.with(|c| Ok(c.query_row("PRAGMA user_version", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(v, 2);
+        assert_eq!(s.list_accounts().unwrap().len(), 1);
+        assert_eq!(s.settings().unwrap(), crate::model::Settings::default());
+        let cols: i64 = s
+            .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'reply_to_json'", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(cols, 1);
+    }
+
+    #[test]
     fn open_sets_wal_and_version() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("illy.db");
@@ -115,7 +141,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(mode, "wal");
-        assert_eq!(ver, 1);
+        assert_eq!(ver, 2);
         drop(s);
         Store::open(&path).unwrap();
     }

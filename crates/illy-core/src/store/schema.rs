@@ -1,6 +1,6 @@
 //! Schéma SQLite v1 (spec § 4).
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 pub const V1: &str = r#"
 CREATE TABLE accounts (
@@ -124,4 +124,17 @@ CREATE TABLE ops (
     created_at INTEGER NOT NULL
 );
 CREATE INDEX ops_due ON ops(account_id, next_attempt_at);
+"#;
+
+/// v2 : réglages, Reply-To, état des brouillons, actions commencées (lot A).
+pub const V2: &str = r#"
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL
+);
+ALTER TABLE messages ADD COLUMN reply_to_json TEXT NOT NULL DEFAULT '[]';
+ALTER TABLE drafts ADD COLUMN state TEXT NOT NULL DEFAULT 'editing';
+ALTER TABLE drafts ADD COLUMN last_error TEXT;
+ALTER TABLE drafts ADD COLUMN send_at INTEGER;
+ALTER TABLE ops ADD COLUMN started_at INTEGER;
 "#;
