@@ -27,6 +27,7 @@ pub async fn sync_folder(
     folder: FolderId,
     path: &str,
     cfg: &WorkerConfig,
+    with_structure: bool,
 ) -> Result<FolderBacklog> {
     let sel = select(s, path, caps.condstore).await?;
     let mut st = store.folder_state(folder)?;
@@ -71,7 +72,7 @@ pub async fn sync_folder(
     let batch = (cfg.header_batch as usize).min(diff.new_desc.len());
     let (first, rest) = diff.new_desc.split_at(batch);
     if !first.is_empty() {
-        let headers = fetch_headers(s, first).await?;
+        let headers = fetch_headers(s, first, with_structure).await?;
         changed |= store.upsert_headers(account, folder, &headers)? > 0;
         events.emit(CoreEvent::SyncProgress {
             account_id: account,
@@ -107,14 +108,16 @@ pub async fn backfill_step(
     path: &str,
     backlog: &mut FolderBacklog,
     cfg: &WorkerConfig,
+    with_structure: bool,
 ) -> Result<()> {
     if backlog.pending_desc.is_empty() {
         return Ok(());
     }
     let n = (cfg.header_batch as usize).min(backlog.pending_desc.len());
-    let batch: Vec<u32> = backlog.pending_desc.drain(..n).collect();
     select(s, path, false).await?;
-    let headers = fetch_headers(s, &batch).await?;
+    // Le lot n'est retiré du backlog qu'en cas de succès (sinon il est réessayé).
+    let headers = fetch_headers(s, &backlog.pending_desc[..n], with_structure).await?;
+    backlog.pending_desc.drain(..n);
     if store.upsert_headers(account, backlog.folder_id, &headers)? > 0 {
         events.emit(CoreEvent::FolderChanged { account_id: account, folder_id: backlog.folder_id });
     }

@@ -50,15 +50,20 @@ pub async fn search_all_uids(s: &mut ImapSession) -> Result<Vec<u32>> {
     Ok(v)
 }
 
-const HEADER_QUERY: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE \
-    BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])";
+const HEADER_FIELDS: &str = "BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)]";
 
-pub async fn fetch_headers(s: &mut ImapSession, uids: &[u32]) -> Result<Vec<NewHeader>> {
+/// En-têtes d'un lot de mails. `with_structure = false` évite BODYSTRUCTURE (mode sûr après
+/// une réponse illisible) : les parties restent vides et le corps sera lu en entier.
+pub async fn fetch_headers(s: &mut ImapSession, uids: &[u32], with_structure: bool) -> Result<Vec<NewHeader>> {
     if uids.is_empty() {
         return Ok(vec![]);
     }
+    let query = format!(
+        "(UID FLAGS INTERNALDATE RFC822.SIZE{} {HEADER_FIELDS})",
+        if with_structure { " BODYSTRUCTURE" } else { "" }
+    );
     let fetches: Vec<_> =
-        s.uid_fetch(uid_set(uids), HEADER_QUERY).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+        s.uid_fetch(uid_set(uids), query).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
     let mut out = Vec::with_capacity(fetches.len());
     for f in &fetches {
         let Some(uid) = f.uid else { continue };
@@ -108,6 +113,14 @@ pub async fn fetch_part(s: &mut ImapSession, uid: u32, part_path: &str) -> Resul
         s.uid_fetch(uid.to_string(), query).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
     let f = fetches.iter().find(|f| f.uid == Some(uid)).ok_or(CoreError::NotFound)?;
     Ok(f.section(&SectionPath::Part(nums, None)).unwrap_or_default().to_vec())
+}
+
+/// Mail complet (secours) ; ne le marque pas comme lu.
+pub async fn fetch_full(s: &mut ImapSession, uid: u32) -> Result<Vec<u8>> {
+    let fetches: Vec<_> =
+        s.uid_fetch(uid.to_string(), "(UID BODY.PEEK[])").await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    let f = fetches.iter().find(|f| f.uid == Some(uid)).ok_or(CoreError::NotFound)?;
+    Ok(f.body().unwrap_or_default().to_vec())
 }
 
 pub async fn store_seen(s: &mut ImapSession, uid: u32, seen: bool) -> Result<()> {

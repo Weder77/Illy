@@ -360,6 +360,38 @@ impl Store {
         })
     }
 
+    pub fn has_any_part(&self, id: MessageId) -> Result<bool> {
+        self.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM parts WHERE message_id = ?1", [id], |r| r.get::<_, i64>(0))? > 0))
+    }
+
+    pub fn message_detail_has_attachments(&self, id: MessageId) -> Result<bool> {
+        self.with(|c| {
+            Ok(c.query_row("SELECT has_attachments FROM messages WHERE id = ?1", [id], |r| r.get(0))
+                .optional()?
+                .ok_or(CoreError::NotFound)?)
+        })
+    }
+
+    /// Pièces jointes extraites d'un mail complet (mode secours) : chemin `raw:N`, données stockées.
+    pub fn add_raw_attachments(&self, id: MessageId, items: &[(String, String, Vec<u8>)]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        self.with(|c| {
+            let tx = c.transaction()?;
+            for (i, (name, mime, data)) in items.iter().enumerate() {
+                tx.execute(
+                    "INSERT OR REPLACE INTO parts (message_id, part_path, mime_type, filename, size, encoding, kind, data) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'binary', 'attachment', ?6)",
+                    params![id, format!("raw:{}", i + 1), mime, name, data.len() as i64, data],
+                )?;
+            }
+            tx.execute("UPDATE messages SET has_attachments = 1 WHERE id = ?1", [id])?;
+            tx.commit()?;
+            Ok(())
+        })
+    }
+
     /// Supprime un mail localement (disparu du serveur).
     pub fn delete_message(&self, id: MessageId) -> Result<()> {
         self.with(|c| {

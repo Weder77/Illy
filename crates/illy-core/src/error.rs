@@ -14,6 +14,8 @@ pub enum CoreError {
     Tls(String),
     #[error("erreur IMAP : {0}")]
     Imap(String),
+    #[error("réponse illisible du serveur : {0}")]
+    Parse(String),
     #[error("erreur SMTP : {0}")]
     Smtp(String),
     #[error("introuvable")]
@@ -36,6 +38,7 @@ impl CoreError {
             CoreError::Network(_) => "network",
             CoreError::Tls(_) => "tls",
             CoreError::Imap(_) => "imap",
+            CoreError::Parse(_) => "parse",
             CoreError::Smtp(_) => "smtp",
             CoreError::NotFound => "not_found",
             CoreError::InvalidInput(_) => "invalid_input",

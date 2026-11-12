@@ -26,6 +26,11 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub fn imap_err(e: async_imap::error::Error) -> CoreError {
     use async_imap::error::Error as E;
     match e {
+        // async-imap signale une réponse non analysable par une erreur d'E/S ;
+        // la session est alors inutilisable (les octets fautifs restent en tampon).
+        E::Io(io) if io.to_string().contains("during parsing of") => {
+            CoreError::Parse(io.to_string().chars().take(300).collect())
+        }
         E::Io(io) => CoreError::Network(io.to_string()),
         E::ConnectionLost => CoreError::Network("connexion perdue".into()),
         E::No(s) | E::Bad(s) => CoreError::Imap(s),

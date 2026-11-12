@@ -1,9 +1,11 @@
 //! Synchronisation IMAP → base locale.
 
 mod diff;
+mod body;
 mod folder_sync;
 
 pub use diff::{diff_uids, uidvalidity_changed, UidDiff};
+pub use body::{fetch_attachment, fetch_body};
 pub use folder_sync::{backfill_step, sync_folder, FolderBacklog};
 
 use std::time::Duration;

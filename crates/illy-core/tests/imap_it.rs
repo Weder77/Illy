@@ -57,7 +57,7 @@ async fn headers_and_part_roundtrip() {
     assert!(sel.uidvalidity > 0);
     let uids = search_all_uids(&mut s).await.unwrap();
     assert_eq!(uids.len(), 1);
-    let h = fetch_headers(&mut s, &uids).await.unwrap();
+    let h = fetch_headers(&mut s, &uids, true).await.unwrap();
     assert_eq!(h.len(), 1);
     assert_eq!(h[0].headers.subject, "Devis cuisine");
     assert_eq!(h[0].headers.from.email, "marie@exemple.fr");
@@ -82,7 +82,7 @@ async fn single_part_message_part_one() {
     let mut s = gm.session().await;
     select(&mut s, "INBOX", false).await.unwrap();
     let uids = search_all_uids(&mut s).await.unwrap();
-    let h = fetch_headers(&mut s, &uids).await.unwrap();
+    let h = fetch_headers(&mut s, &uids, true).await.unwrap();
     let body = fetch_part(&mut s, uids[0], "1").await.unwrap();
     match decode_part(&synth_mime_header(&h[0].parts[0]), &body) {
         Decoded::Text(t) => assert_eq!(t.trim_end(), "Votre café vous attend."),
@@ -109,4 +109,22 @@ async fn missing_message_part_is_not_found() {
     let mut s = gm.session().await;
     select(&mut s, "INBOX", false).await.unwrap();
     assert!(matches!(fetch_part(&mut s, 999, "1").await, Err(CoreError::NotFound)));
+}
+
+#[tokio::test]
+async fn broken_structure_is_parse_error_then_safe_fetch_works() {
+    let gm = GreenMail::start();
+    gm.append("INBOX", &fixture("broken_mime.eml"), false).await;
+    let mut s = gm.session().await;
+    select(&mut s, "INBOX", false).await.unwrap();
+    let uids = search_all_uids(&mut s).await.unwrap();
+    let r = fetch_headers(&mut s, &uids, true).await;
+    assert!(matches!(r, Err(CoreError::Parse(_))), "{:?}", r.err());
+    let mut s = gm.session().await;
+    select(&mut s, "INBOX", false).await.unwrap();
+    let h = fetch_headers(&mut s, &uids, false).await.unwrap();
+    assert_eq!(h.len(), 1);
+    assert!(h[0].parts.is_empty());
+    let raw = fetch_full(&mut s, uids[0]).await.unwrap();
+    assert!(raw.starts_with(b"From: broken"), "{:?}", String::from_utf8_lossy(&raw));
 }

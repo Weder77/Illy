@@ -106,6 +106,15 @@ impl Store {
         })
     }
 
+    pub fn folder_path(&self, id: FolderId) -> Result<String> {
+        self.with(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row("SELECT imap_path FROM folders WHERE id = ?1", [id], |r| r.get(0))
+                .optional()?
+                .ok_or(crate::CoreError::NotFound)
+        })
+    }
+
     /// Dossiers non masqués : (id, chemin IMAP, rôle), boîte de réception en premier.
     pub fn syncable_folders(&self, account: AccountId) -> Result<Vec<(FolderId, String, FolderRole)>> {
         let mut out = self.with(|c| {
