@@ -1963,6 +1963,7 @@ dependencies = [
  "tokio-rustls",
  "tracing",
  "utf7-imap",
+ "uuid",
  "webpki-roots",
  "windows-native-keyring-store",
 ]
