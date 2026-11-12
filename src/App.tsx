@@ -1,6 +1,8 @@
 import { useEffect } from 'react';
 import { api } from './api';
 import { useAppStore } from './state/store';
+import { AddAccountWizard } from './features/accounts/AddAccountWizard';
+import { UpdatePasswordDialog } from './features/accounts/UpdatePasswordDialog';
 import { MessageList } from './features/message-list/MessageList';
 import { Reader } from './features/reader/Reader';
 import { Sidebar } from './features/sidebar/Sidebar';
@@ -11,6 +13,10 @@ export default function App() {
   const accounts = useAppStore((s) => s.accounts);
   const init = useAppStore((s) => s.init);
   const applyEvent = useAppStore((s) => s.applyEvent);
+  const showWizard = useAppStore((s) => s.showWizard);
+  const setShowWizard = useAppStore((s) => s.setShowWizard);
+  const passwordDialogFor = useAppStore((s) => s.passwordDialogFor);
+  const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
 
   useEffect(() => {
     void init().catch((e) => console.error('démarrage', e));
@@ -31,6 +37,10 @@ export default function App() {
           <Reader />
         </section>
       </main>
+      {showWizard && <AddAccountWizard onClose={() => setShowWizard(false)} />}
+      {passwordDialogFor != null && (
+        <UpdatePasswordDialog accountId={passwordDialogFor} onClose={() => setPasswordDialogFor(null)} />
+      )}
     </div>
   );
 }

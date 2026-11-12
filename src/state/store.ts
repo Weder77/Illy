@@ -14,6 +14,8 @@ export interface AppState {
   showWizard: boolean;
   /** Compte dont on met à jour le mot de passe (boîte de dialogue ouverte). */
   passwordDialogFor: number | null;
+  /** Compte ajouté à l'instant : sa boîte de réception sera ouverte dès que ses dossiers arrivent. */
+  focusAccount: number | null;
   /** Incrémenté quand la liste affichée doit être relue. */
   listVersion: number;
   /** Incrémenté quand un mail change (relecture du mail ouvert). */
@@ -25,6 +27,7 @@ export interface AppState {
   selectMessage(id: number | null): void;
   setShowWizard(show: boolean): void;
   setPasswordDialogFor(accountId: number | null): void;
+  setFocusAccount(accountId: number | null): void;
   applyEvent(e: CoreEvent): void;
 }
 
@@ -36,6 +39,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   selection: { scope: unified, messageId: null },
   showWizard: false,
   passwordDialogFor: null,
+  focusAccount: null,
   listVersion: 0,
   messageVersion: 0,
 
@@ -77,6 +81,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
     set({ passwordDialogFor: accountId });
   },
 
+  setFocusAccount(accountId) {
+    set({ focusAccount: accountId });
+  },
+
   applyEvent(e) {
     switch (e.type) {
       case 'account_status':
@@ -85,7 +93,16 @@ export const useAppStore = create<AppState>()((set, get) => ({
         }));
         break;
       case 'folders_changed':
-        void get().loadFolders(e.accountId).catch(() => undefined);
+        void get()
+          .loadFolders(e.accountId)
+          .then(() => {
+            if (get().focusAccount !== e.accountId) return;
+            const inbox = get().folders[e.accountId]?.find((f) => f.role === 'inbox');
+            if (!inbox) return;
+            set({ focusAccount: null });
+            get().selectScope({ kind: 'folder', folderId: inbox.id });
+          })
+          .catch(() => undefined);
         break;
       case 'folder_changed':
         set((s) => ({ listVersion: s.listVersion + 1 }));

@@ -81,4 +81,12 @@ describe('app store', () => {
     expect(useAppStore.getState().listVersion).toBe(v + 1);
     expect(fake.listFolders).toHaveBeenCalledWith(1);
   });
+
+  test('focusAccount selects the new inbox once its folders arrive', async () => {
+    await useAppStore.getState().init();
+    useAppStore.setState({ focusAccount: 2 });
+    useAppStore.getState().applyEvent({ type: 'folders_changed', accountId: 2 });
+    await vi.waitFor(() => expect(useAppStore.getState().selection.scope).toEqual({ kind: 'folder', folderId: 20 }));
+    expect(useAppStore.getState().focusAccount).toBeNull();
+  });
 });
