@@ -1,6 +1,7 @@
 //! Base locale SQLite : miroir des serveurs IMAP.
 
 mod accounts;
+mod contacts;
 mod allowlist;
 mod folders;
 mod messages;
@@ -9,7 +10,7 @@ mod schema;
 mod settings;
 
 pub use folders::{FolderInfo, FolderSyncState};
-pub use messages::NewHeader;
+pub use messages::{NewHeader, ReplySource};
 pub use ops::{Op, OpKind};
 
 use crate::error::{CoreError, Result};

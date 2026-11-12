@@ -50,7 +50,7 @@ pub async fn search_all_uids(s: &mut ImapSession) -> Result<Vec<u32>> {
     Ok(v)
 }
 
-const HEADER_FIELDS: &str = "BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)]";
+const HEADER_FIELDS: &str = "BODY.PEEK[HEADER.FIELDS (FROM TO CC REPLY-TO SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)]";
 
 /// En-têtes d'un lot de mails. `with_structure = false` évite BODYSTRUCTURE (mode sûr après
 /// une réponse illisible) : les parties restent vides et le corps sera lu en entier.

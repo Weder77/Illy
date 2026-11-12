@@ -7,6 +7,7 @@ pub struct ParsedHeaders {
     pub from: Address,
     pub to: Vec<Address>,
     pub cc: Vec<Address>,
+    pub reply_to: Vec<Address>,
     pub date: Option<i64>,
     pub message_id: Option<String>,
     pub in_reply_to: Option<String>,
@@ -41,6 +42,7 @@ pub fn parse_header_block(raw: &[u8]) -> ParsedHeaders {
         from: msg.from().and_then(|l| l.first()).map(|m| addr(m.name(), m.address())).unwrap_or_default(),
         to: list(msg.to()),
         cc: list(msg.cc()),
+        reply_to: list(msg.reply_to()),
         date: msg.date().map(|d| d.to_timestamp()),
         message_id: msg.message_id().map(str::to_string),
         in_reply_to: msg.in_reply_to().and_then(|l| l.first().map(str::to_string)),
@@ -88,6 +90,14 @@ mod tests {
         let h = parse_header_block(b"From: \xc9lodie <e@x.fr>\r\nSubject: R\xe9union \xe0 14h\r\n\r\n");
         assert_eq!(h.subject, "Réunion à 14h");
         assert_eq!(h.from.name.as_deref(), Some("Élodie"));
+    }
+
+    #[test]
+    fn reply_to_parsed() {
+        let h = parse_header_block(b"From: a@x.fr\r\nReply-To: Liste <liste@ex.fr>\r\n\r\n");
+        assert_eq!(h.reply_to.len(), 1);
+        assert_eq!(h.reply_to[0].email, "liste@ex.fr");
+        assert_eq!(h.reply_to[0].name.as_deref(), Some("Liste"));
     }
 
     #[test]

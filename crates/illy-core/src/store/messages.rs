@@ -17,6 +17,20 @@ pub struct NewHeader {
     pub parts: Vec<PartInfo>,
 }
 
+/// En-têtes d'un mail utiles pour y répondre ou le transférer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplySource {
+    pub from: Address,
+    pub to: Vec<Address>,
+    pub cc: Vec<Address>,
+    pub reply_to: Vec<Address>,
+    pub subject: String,
+    pub date: i64,
+    pub message_id: Option<String>,
+    pub references: Vec<String>,
+    pub account_id: AccountId,
+}
+
 const SUMMARY_COLS: &str =
     "m.id, m.account_id, m.folder_id, m.from_name, m.from_addr, m.subject, m.snippet, m.date, m.seen, m.has_attachments";
 
@@ -77,11 +91,12 @@ impl Store {
             let tx = c.transaction()?;
             let mut added = 0;
             let pending = pending_seen_uids(&tx, folder)?;
+            let own = super::contacts::own_addresses_in(&tx)?;
             {
                 let mut ins = tx.prepare(
                     "INSERT OR IGNORE INTO messages (account_id, folder_id, uid, message_id, in_reply_to, refs, \
-                     subject, from_name, from_addr, to_json, cc_json, date, seen, answered, has_attachments, size) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+                     subject, from_name, from_addr, to_json, cc_json, date, seen, answered, has_attachments, size, reply_to_json) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
                 )?;
                 let mut upd =
                     tx.prepare("UPDATE messages SET seen = ?1, answered = ?2 WHERE folder_id = ?3 AND uid = ?4")?;
@@ -114,7 +129,8 @@ impl Store {
                         h.seen,
                         h.answered,
                         has_att,
-                        h.size as i64
+                        h.size as i64,
+                        serde_json::to_string(&p.reply_to)?
                     ])?;
                     if n == 0 {
                         if !pending.contains(&h.uid) {
@@ -124,6 +140,11 @@ impl Store {
                     }
                     added += 1;
                     let id = tx.last_insert_rowid();
+                    let mut people = vec![p.from.clone()];
+                    people.extend(p.to.iter().cloned());
+                    people.extend(p.cc.iter().cloned());
+                    people.extend(p.reply_to.iter().cloned());
+                    super::contacts::record_contacts_in(&tx, &people, date, &own)?;
                     for x in &h.parts {
                         part.execute(params![
                             id,
@@ -384,6 +405,37 @@ impl Store {
         })
     }
 
+    pub fn message_headers_for_reply(&self, id: MessageId) -> Result<ReplySource> {
+        self.with_read(|c| {
+            c.query_row(
+                "SELECT from_name, from_addr, to_json, cc_json, reply_to_json, subject, date, message_id, refs, account_id \
+                 FROM messages WHERE id = ?1",
+                [id],
+                |r| {
+                    let js = |i: usize| -> rusqlite::Result<Vec<Address>> {
+                        Ok(serde_json::from_str(&r.get::<_, String>(i)?).unwrap_or_default())
+                    };
+                    Ok(ReplySource {
+                        from: Address { name: r.get(0)?, email: r.get(1)? },
+                        to: js(2)?,
+                        cc: js(3)?,
+                        reply_to: js(4)?,
+                        subject: r.get(5)?,
+                        date: r.get(6)?,
+                        message_id: r.get(7)?,
+                        references: r
+                            .get::<_, Option<String>>(8)?
+                            .map(|s| s.split_whitespace().map(str::to_string).collect())
+                            .unwrap_or_default(),
+                        account_id: r.get(9)?,
+                    })
+                },
+            )
+            .optional()?
+            .ok_or(CoreError::NotFound)
+        })
+    }
+
     pub fn message_id_by_uid(&self, folder: FolderId, uid: u32) -> Result<Option<MessageId>> {
         self.with_read(|c| {
             Ok(c.query_row("SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2", params![folder, uid], |r| r.get(0))
@@ -502,6 +554,39 @@ pub(crate) mod tests {
         assert_eq!(s.upsert_headers(a, f[0], &[header(1, 1, "m@x")]).unwrap(), 0);
         assert_eq!(s.count_messages(ListScope::Folder(f[0])).unwrap(), 3);
         assert_eq!(s.known_uids(f[0]).unwrap(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn upsert_records_contacts_once() {
+        let s = Store::open_in_memory().unwrap();
+        let (a, f) = setup(&s, "moi@x.fr", &[("INBOX", FolderRole::Inbox)]);
+        let mut h = header(1, 1, "marie@ex.fr");
+        h.headers.to = vec![Address { name: None, email: "MOI@x.fr".into() }];
+        s.upsert_headers(a, f[0], &[h.clone()]).unwrap();
+        s.upsert_headers(a, f[0], &[h]).unwrap();
+        let found = s.search_contacts("marie", 8).unwrap();
+        assert_eq!(found.len(), 1);
+        let count: i64 = s.with(|c| Ok(c.query_row("SELECT count FROM contacts WHERE email = 'marie@ex.fr'", [], |r| r.get(0))?)).unwrap();
+        assert_eq!(count, 1);
+        assert!(s.search_contacts("moi", 8).unwrap().is_empty(), "own address never becomes a contact");
+    }
+
+    #[test]
+    fn reply_source_roundtrip() {
+        let s = Store::open_in_memory().unwrap();
+        let (a, f) = setup(&s, "moi@x.fr", &[("INBOX", FolderRole::Inbox)]);
+        let mut h = header(1, 77, "marie@ex.fr");
+        h.headers.reply_to = vec![Address { name: Some("Liste".into()), email: "liste@ex.fr".into() }];
+        h.headers.references = vec!["<r1@x>".into()];
+        s.upsert_headers(a, f[0], &[h]).unwrap();
+        let id = s.message_id_by_uid(f[0], 1).unwrap().unwrap();
+        let src = s.message_headers_for_reply(id).unwrap();
+        assert_eq!(src.reply_to[0].email, "liste@ex.fr");
+        assert_eq!(src.references, vec!["<r1@x>".to_string()]);
+        assert_eq!(src.message_id.as_deref(), Some("m1@x"));
+        assert_eq!(src.subject, "Sujet 1");
+        assert_eq!(src.date, 77);
+        assert_eq!(src.account_id, a);
     }
 
     #[test]
