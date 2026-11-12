@@ -397,7 +397,8 @@ impl Store {
         })
     }
 
-    /// Pièces jointes extraites d'un mail complet (mode secours) : chemin `raw:N`, données stockées.
+    /// Pièces jointes extraites d'un mail complet (mode secours) : chemin `raw:N`.
+    /// Seules les métadonnées sont gardées : le contenu est relu à l'ouverture (jamais préchargé).
     pub fn add_raw_attachments(&self, id: MessageId, items: &[(String, String, Vec<u8>)]) -> Result<()> {
         if items.is_empty() {
             return Ok(());
@@ -407,8 +408,8 @@ impl Store {
             for (i, (name, mime, data)) in items.iter().enumerate() {
                 tx.execute(
                     "INSERT OR REPLACE INTO parts (message_id, part_path, mime_type, filename, size, encoding, kind, data) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, 'binary', 'attachment', ?6)",
-                    params![id, format!("raw:{}", i + 1), mime, name, data.len() as i64, data],
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'binary', 'attachment', NULL)",
+                    params![id, format!("raw:{}", i + 1), mime, name, data.len() as i64],
                 )?;
             }
             tx.execute("UPDATE messages SET has_attachments = 1 WHERE id = ?1", [id])?;

@@ -16,6 +16,11 @@ use tokio::sync::oneshot;
 
 const OPEN_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Délai d'attente d'une pièce jointe : 30 s plus le temps de la télécharger à 50 Ko/s, au plus 10 min.
+pub fn attachment_timeout(size: u64) -> Duration {
+    Duration::from_secs((30 + size / 50_000).min(600))
+}
+
 pub struct Core {
     store: Store,
     secrets: Arc<dyn SecretStore>,
@@ -154,6 +159,7 @@ impl Core {
     async fn ask_worker<T>(
         &self,
         account: AccountId,
+        timeout: Duration,
         make: impl FnOnce(oneshot::Sender<Result<T>>) -> WorkerRequest,
     ) -> Result<T> {
         let (tx, rx) = oneshot::channel();
@@ -161,7 +167,7 @@ impl Core {
             .send(account, make(tx))
             .await
             .map_err(|_| CoreError::Network("ce compte n'est pas connecté".into()))?;
-        match tokio::time::timeout(OPEN_TIMEOUT, rx).await {
+        match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(r)) => r,
             Ok(Err(_)) => Err(CoreError::Network("connexion interrompue".into())),
             Err(_) => Err(CoreError::Network("délai dépassé".into())),
@@ -174,7 +180,7 @@ impl Core {
         let mut detail = match self.store.message_detail(id, show_images)? {
             Some(d) => d,
             None => {
-                self.ask_worker(account, |tx| WorkerRequest::FetchBody(id, tx)).await?;
+                self.ask_worker(account, OPEN_TIMEOUT, |tx| WorkerRequest::FetchBody(id, tx)).await?;
                 self.store.message_detail(id, show_images)?.ok_or(CoreError::NotFound)?
             }
         };
@@ -199,7 +205,7 @@ impl Core {
             Some(b) => b,
             None => {
                 let part = part_path.to_string();
-                self.ask_worker(account, |tx| WorkerRequest::FetchAttachment(id, part, tx)).await?
+                self.ask_worker(account, attachment_timeout(att.size), |tx| WorkerRequest::FetchAttachment(id, part, tx)).await?
             }
         };
         Ok((att, bytes))
@@ -235,6 +241,13 @@ impl Core {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attachment_timeout_scales_with_size() {
+        assert_eq!(attachment_timeout(0), Duration::from_secs(30));
+        assert!(attachment_timeout(20_000_000) >= Duration::from_secs(400));
+        assert_eq!(attachment_timeout(5_000_000_000), Duration::from_secs(600));
+    }
 
     #[test]
     fn sanitize_filename_blocks_traversal() {

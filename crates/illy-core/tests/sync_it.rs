@@ -163,6 +163,7 @@ mod bodies {
                 assert_eq!(d.attachments.len(), 1);
                 assert_eq!(d.attachments[0].filename, "devis.pdf");
                 assert!(d.summary.has_attachments);
+                assert_eq!(store.part(m.id, &d.attachments[0].part_path).unwrap().1, None, "attachments are never preloaded");
                 let pdf = fetch_attachment(&mut s, &store, m.id, &d.attachments[0].part_path).await.unwrap();
                 assert!(pdf.starts_with(b"%PDF"));
             }

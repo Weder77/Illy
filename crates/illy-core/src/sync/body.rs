@@ -113,6 +113,13 @@ pub async fn fetch_attachment(s: &mut ImapSession, store: &Store, id: MessageId,
     }
     let (_, folder, uid) = store.message_location(id)?;
     select(s, &store.folder_path(folder)?, false).await?;
+    if let Some(n) = part_path.strip_prefix("raw:").and_then(|n| n.parse::<usize>().ok()) {
+        // Mail sans structure (mode secours) : on relit le mail entier et on en extrait la pièce.
+        let full = extract_full(&fetch_full(s, uid).await?);
+        let (_, _, bytes) = full.attachments.into_iter().nth(n.saturating_sub(1)).ok_or(CoreError::NotFound)?;
+        store.store_part_data(id, part_path, &bytes)?;
+        return Ok(bytes);
+    }
     let raw = fetch_part(s, uid, part_path).await?;
     // Type forcé en binaire : on veut les octets d'origine, sans conversion de charset.
     let as_binary = PartInfo { mime_type: "application/octet-stream".into(), charset: None, ..info };
