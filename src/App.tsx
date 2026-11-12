@@ -5,6 +5,7 @@ import { AddAccountWizard } from './features/accounts/AddAccountWizard';
 import { UpdatePasswordDialog } from './features/accounts/UpdatePasswordDialog';
 import { MessageList } from './features/message-list/MessageList';
 import { Reader } from './features/reader/Reader';
+import { saveOpenComposers } from './features/composer/Composer';
 import { SendBanner } from './features/outbox/SendBanner';
 import { Sidebar } from './features/sidebar/Sidebar';
 import { TitleBar } from './ui/TitleBar';
@@ -24,7 +25,12 @@ export default function App() {
     // Écoute d'abord : un statut émis pendant le chargement ne doit pas être perdu.
     const off = api.onEvent(applyEvent);
     void init().catch((e) => console.error('démarrage', e));
-    return off;
+    // Fermer Illy enregistre d'abord la réponse en cours sous le mail.
+    const offClose = api.onWindowCloseRequested(saveOpenComposers);
+    return () => {
+      off();
+      offClose();
+    };
   }, [init, applyEvent]);
 
   return (

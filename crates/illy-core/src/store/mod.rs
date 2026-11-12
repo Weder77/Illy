@@ -49,7 +49,7 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", "ON")?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        let steps: [(i64, &str); 2] = [(1, schema::V1), (2, schema::V2)];
+        let steps: [(i64, &str); 3] = [(1, schema::V1), (2, schema::V2), (3, schema::V3)];
         for (target, sql) in steps {
             if version < target {
                 conn.execute_batch(&format!("BEGIN; {sql} PRAGMA user_version = {target}; COMMIT;"))?;
@@ -121,11 +121,27 @@ mod tests {
         }
         let s = Store::open(&path).unwrap();
         let v: i64 = s.with(|c| Ok(c.query_row("PRAGMA user_version", [], |r| r.get(0))?)).unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
         assert_eq!(s.list_accounts().unwrap().len(), 1);
         assert_eq!(s.settings().unwrap(), crate::model::Settings::default());
         let cols: i64 = s
             .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM pragma_table_info('messages') WHERE name = 'reply_to_json'", [], |r| r.get(0))?))
+            .unwrap();
+        assert_eq!(cols, 1);
+    }
+
+    #[test]
+    fn migrates_a_v2_database_from_an_early_build() {
+        // Une base V2 créée par un installateur de test (avant la colonne `edited`) reçoit V3.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("illy.db");
+        {
+            let c = Connection::open(&path).unwrap();
+            c.execute_batch(&format!("BEGIN; {} {} PRAGMA user_version = 2; COMMIT;", schema::V1, schema::V2)).unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        let cols: i64 = s
+            .with(|c| Ok(c.query_row("SELECT COUNT(*) FROM pragma_table_info('drafts') WHERE name = 'edited'", [], |r| r.get(0))?))
             .unwrap();
         assert_eq!(cols, 1);
     }
@@ -143,7 +159,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(mode, "wal");
-        assert_eq!(ver, 2);
+        assert_eq!(ver, 3);
         drop(s);
         Store::open(&path).unwrap();
     }

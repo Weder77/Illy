@@ -1,6 +1,6 @@
 //! Schéma SQLite v1 (spec § 4).
 
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 3;
 
 pub const V1: &str = r#"
 CREATE TABLE accounts (
@@ -136,7 +136,11 @@ ALTER TABLE messages ADD COLUMN reply_to_json TEXT NOT NULL DEFAULT '[]';
 ALTER TABLE drafts ADD COLUMN state TEXT NOT NULL DEFAULT 'editing';
 ALTER TABLE drafts ADD COLUMN last_error TEXT;
 ALTER TABLE drafts ADD COLUMN send_at INTEGER;
-ALTER TABLE drafts ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE ops ADD COLUMN started_at INTEGER;
 ALTER TABLE contacts ADD COLUMN search_text TEXT NOT NULL DEFAULT '';
+"#;
+
+/// V3 : brouillons jamais modifiés (« Répondre » par erreur) non gardés à la fermeture.
+pub const V3: &str = r#"
+ALTER TABLE drafts ADD COLUMN edited INTEGER NOT NULL DEFAULT 0;
 "#;

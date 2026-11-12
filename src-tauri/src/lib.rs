@@ -6,8 +6,9 @@ use illy_core::events::{CoreEvent, EventSink};
 use illy_core::secrets::SecretStore;
 use illy_core::sync::WorkerConfig;
 use illy_core::Core;
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 
 struct TauriSink(AppHandle);
@@ -19,6 +20,10 @@ impl EventSink for TauriSink {
         }
     }
 }
+
+/// Fichiers réellement déposés sur une fenêtre : les seuls que l'interface peut joindre par leur chemin.
+#[derive(Default)]
+pub struct DroppedFiles(pub Mutex<HashSet<PathBuf>>);
 
 /// Garde du journal : doit vivre aussi longtemps que l'application.
 struct LogGuard(#[allow(dead_code)] tracing_appender::non_blocking::WorkerGuard);
@@ -68,6 +73,31 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(DroppedFiles::default())
+        .on_webview_event(|webview, event| {
+            if let tauri::WebviewEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+                if let Some(state) = webview.try_state::<DroppedFiles>() {
+                    state.0.lock().unwrap().extend(paths.iter().cloned());
+                }
+            }
+        })
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
+                if let Some(state) = window.try_state::<DroppedFiles>() {
+                    state.0.lock().unwrap().extend(paths.iter().cloned());
+                }
+            }
+            // Fermer la fenêtre principale ferme aussi les fenêtres « Nouveau mail »,
+            // qui enregistrent leur brouillon avant de partir : Illy se termine ensuite.
+            tauri::WindowEvent::CloseRequested { .. } if window.label() == "main" => {
+                for (label, w) in window.app_handle().webview_windows() {
+                    if label != "main" {
+                        let _ = w.close();
+                    }
+                }
+            }
+            _ => {}
+        })
         .setup(|app| {
             let data = data_dir()?;
             std::fs::create_dir_all(data.join("logs"))?;

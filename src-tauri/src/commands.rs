@@ -134,9 +134,23 @@ pub fn update_draft(core: State<'_, Core>, input: DraftInput) -> R<Draft> {
     core.update_draft(input)
 }
 
+/// Fichiers déposés sur la fenêtre : seuls les chemins vus dans un vrai glisser-déposer sont acceptés.
 #[tauri::command(async)]
-pub fn add_attachments(core: State<'_, Core>, draft_id: DraftId, paths: Vec<PathBuf>) -> R<Draft> {
+pub fn add_attachments(
+    core: State<'_, Core>,
+    dropped: State<'_, crate::DroppedFiles>,
+    draft_id: DraftId,
+    paths: Vec<PathBuf>,
+) -> R<Draft> {
+    check_dropped(&dropped.0.lock().unwrap(), &paths)?;
     core.add_attachments(draft_id, paths)
+}
+
+pub fn check_dropped(dropped: &std::collections::HashSet<PathBuf>, paths: &[PathBuf]) -> R<()> {
+    match paths.iter().find(|p| !dropped.contains(*p)) {
+        Some(p) => Err(CoreError::InvalidInput(format!("fichier non déposé : {}", p.display()))),
+        None => Ok(()),
+    }
 }
 
 /// Sélecteur de fichiers puis ajout ; annuler le sélecteur rend le brouillon tel quel.
@@ -228,6 +242,14 @@ mod tests {
         }
         assert!(check_url("https://ex.fr").is_ok());
         assert!(check_url("HTTP://ex.fr/a?b=c").is_ok());
+    }
+
+    #[test]
+    fn only_dropped_files_can_be_attached_by_path() {
+        let dropped: std::collections::HashSet<PathBuf> = [PathBuf::from("C:/Users/moi/devis.pdf")].into();
+        assert!(check_dropped(&dropped, &[PathBuf::from("C:/Users/moi/devis.pdf")]).is_ok());
+        assert!(check_dropped(&dropped, &[PathBuf::from("C:/Users/moi/AppData/Local/secret.db")]).is_err());
+        assert!(check_dropped(&dropped, &[PathBuf::from("C:/Users/moi/devis.pdf"), PathBuf::from("C:/x")]).is_err());
     }
 
     #[test]

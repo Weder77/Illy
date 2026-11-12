@@ -28,6 +28,7 @@ export function SendBanner() {
     setError(null);
     try {
       if (await api.cancelSend(d.id)) reopenDraft({ ...d, state: 'editing', sendAt: null });
+      else setError("Trop tard : le mail est déjà en cours d'envoi.");
     } catch (e) {
       setError(errorMessage(e));
     }

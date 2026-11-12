@@ -67,6 +67,7 @@ test('cancel too late does not reopen the draft', async () => {
     fireEvent.click(screen.getByRole('button', { name: 'Annuler' }));
   });
   expect(fake.openComposeWindow).not.toHaveBeenCalled();
+  expect(screen.getByRole('alert')).toHaveTextContent("Trop tard : le mail est déjà en cours d'envoi.");
 });
 
 test('queued drafts past their deadline are not counted down', () => {

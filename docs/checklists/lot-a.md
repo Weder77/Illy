@@ -25,7 +25,10 @@ Coche chaque ligne. Si quelque chose ne va pas, note le numéro et ce que tu as 
 13. [ ] **Accents** : un objet accentué (« Réunion d'équipe — été »), un nom accentué et la pièce jointe `Facture été 2026.pdf` arrivent intacts chez le destinataire.
 14. [ ] **Images collées** : copie une capture d'écran (Impr. écran) et colle-la dans le texte avec Ctrl+V. Elle s'affiche dans le mail reçu.
 15. [ ] **Glisser-déposer** : dépose un fichier depuis l'Explorateur sur l'éditeur : il devient une pièce jointe.
-16. [ ] **Fermer Illy pendant l'annulation** : envoie un mail et ferme Illy tout de suite (avant la fin des 10 s). Relance Illy : le mail part, **une seule fois**.
+16. [ ] **Une seule copie du brouillon** : écris un mail pendant 3 ou 4 minutes sans l'envoyer. Dans le webmail, le dossier Brouillons n'en contient **qu'une** copie (pas une par minute).
+17. [ ] **Refus du serveur** : écris à une adresse qui n'existe pas sur ton domaine (par exemple `zzz-inexistant@` ton domaine OVH). Le bandeau affiche « Échec de l'envoi à … : Refusé par le serveur d'envoi : … » avec la raison du serveur, et le compte **n'est pas** marqué « Mot de passe refusé ».
+18. [ ] **Fermer Illy avec une fenêtre Nouveau mail ouverte** : la fenêtre se ferme aussi, et le brouillon se retrouve dans le webmail.
+19. [ ] **Fermer Illy pendant l'annulation** : envoie un mail et ferme Illy tout de suite (avant la fin des 10 s). Relance Illy : le mail part, **une seule fois**.
 
 ## Où trouver les journaux en cas de problème
 
