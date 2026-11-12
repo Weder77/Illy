@@ -209,3 +209,25 @@ async fn update_password_and_remove_account() {
     assert_eq!(e.secrets.get(id).unwrap(), None);
     assert_eq!(e.core.count_messages(ListScope::UnifiedInbox).unwrap(), 0);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn offline_read_never_reverts_on_reconnect() {
+    let gm = GreenMail::start();
+    gm.append_many("INBOX", 1, 1).await;
+    let e = env(gm);
+    let id = added(&e).await;
+    assert!(wait_until(10, || inbox_count(&e.core, id) == 1).await);
+    let f = inbox(&e.core, id).unwrap();
+    let m = e.core.list_messages(ListScope::Folder(f), 0, 1).unwrap()[0].clone();
+    assert!(wait_until(10, || e.core.store().message_detail(m.id, false).unwrap().is_some()).await);
+    e.core.sync_manager().stop(id);
+    e.core.open_message(m.id, false).await.unwrap();
+    e.core.sync_manager().start(id);
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    while std::time::Instant::now() < deadline {
+        let seen = e.core.list_messages(ListScope::Folder(f), 0, 1).unwrap()[0].seen;
+        assert!(seen, "the mail opened offline went back to unread during the reconnect sync");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(e.gm.server_flags("INBOX").await, vec![(1, true, false)]);
+}

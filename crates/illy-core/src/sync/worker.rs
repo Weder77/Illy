@@ -45,6 +45,15 @@ enum Exit {
     Shutdown,
 }
 
+/// Signaux de la connexion IDLE vers le worker.
+enum IdleMsg {
+    Changed,
+    AuthFailed(String),
+}
+
+/// Une session plus courte que ça ne remet pas le délai de reprise à zéro.
+const HEALTHY_SESSION: Duration = Duration::from_secs(120);
+
 async fn timed<T>(f: impl Future<Output = Result<T>>) -> Result<T> {
     match tokio::time::timeout(OP_TIMEOUT, f).await {
         Ok(r) => r,
@@ -127,14 +136,16 @@ pub(crate) async fn run_worker(ctx: WorkerCtx, mut rx: mpsc::Receiver<WorkerRequ
                 return;
             }
         };
-        ctx.set_status(&mut st, AccountStatus::Syncing, None);
+        if !matches!(st.last_status, Some((AccountStatus::Offline, _))) {
+            ctx.set_status(&mut st, AccountStatus::Syncing, None);
+        }
+        let started = Instant::now();
         let result = match connect(&account.imap, &account.email, &password).await {
-            Ok((session, caps)) => {
-                attempt = 0;
-                connected(&ctx, &mut st, &mut rx, session, caps, &account, &password).await
-            }
+            Ok((session, caps)) => connected(&ctx, &mut st, &mut rx, session, caps, &account, &password).await,
             Err(e) => Err(e),
         };
+        // Délai de reprise : remis à zéro seulement après une session restée saine assez longtemps.
+        attempt = if started.elapsed() >= HEALTHY_SESSION { 1 } else { attempt + 1 };
         match result {
             Ok(Exit::Shutdown) => return,
             Err(CoreError::Auth(msg)) => {
@@ -146,16 +157,14 @@ pub(crate) async fn run_worker(ctx: WorkerCtx, mut rx: mpsc::Receiver<WorkerRequ
                 return;
             }
             Err(CoreError::Parse(msg)) => {
-                // Réponse illisible : la session est inutilisable, on se reconnecte tout de suite
+                // Réponse illisible : la session est inutilisable ; on se reconnecte
                 // (le dossier fautif est passé en mode sûr par `connected`).
-                tracing::warn!(account = ctx.account, "réponse IMAP illisible, reconnexion : {msg}");
-                attempt += 1;
-                if attempt > 20 && !wait_refusing(&mut rx, backoff(attempt, &ctx.cfg), &CoreError::Parse(msg)).await {
+                tracing::warn!(account = ctx.account, attempt, "réponse IMAP illisible, reconnexion : {msg}");
+                if !wait_refusing(&mut rx, backoff(attempt, &ctx.cfg), &CoreError::Parse(msg)).await {
                     return;
                 }
             }
             Err(e) => {
-                attempt += 1;
                 tracing::info!(account = ctx.account, attempt, "hors ligne : {e}");
                 ctx.set_status(&mut st, AccountStatus::Offline, Some(e.to_string()));
                 if !wait_refusing(&mut rx, backoff(attempt, &ctx.cfg), &e).await {
@@ -167,7 +176,7 @@ pub(crate) async fn run_worker(ctx: WorkerCtx, mut rx: mpsc::Receiver<WorkerRequ
 }
 
 /// Connexion IDLE séparée sur la boîte de réception ; signale chaque changement.
-async fn idle_loop(account: Account, password: String, cfg: WorkerConfig, notify: mpsc::Sender<()>) {
+async fn idle_loop(account: Account, password: String, cfg: WorkerConfig, notify: mpsc::Sender<IdleMsg>) {
     let mut attempt = 0;
     loop {
         let r: Result<()> = async {
@@ -184,7 +193,7 @@ async fn idle_loop(account: Account, password: String, cfg: WorkerConfig, notify
                 session = handle.done().await.map_err(imap_err)?;
                 match res {
                     Ok(async_imap::extensions::idle::IdleResponse::NewData(_)) => {
-                        if notify.send(()).await.is_err() {
+                        if notify.send(IdleMsg::Changed).await.is_err() {
                             return Ok(());
                         }
                     }
@@ -195,6 +204,11 @@ async fn idle_loop(account: Account, password: String, cfg: WorkerConfig, notify
         }
         .await;
         if notify.is_closed() {
+            return;
+        }
+        if let Err(CoreError::Auth(m)) = r {
+            // Mot de passe changé : on prévient le worker au lieu de réessayer en boucle.
+            let _ = notify.send(IdleMsg::AuthFailed(m)).await;
             return;
         }
         attempt += 1;
@@ -273,6 +287,64 @@ async fn handle_request(ctx: &WorkerCtx, st: &mut State, s: &mut ImapSession, ca
     }
 }
 
+/// Traite toutes les demandes en attente : ouvertures de mails d'abord, synchros de dossier dédoublonnées.
+async fn drain_requests(
+    ctx: &WorkerCtx,
+    st: &mut State,
+    rx: &mut mpsc::Receiver<WorkerRequest>,
+    s: &mut ImapSession,
+    caps: &Caps,
+    first: Option<WorkerRequest>,
+) -> Result<()> {
+    let mut pending: Vec<WorkerRequest> = first.into_iter().collect();
+    while let Ok(req) = rx.try_recv() {
+        pending.push(req);
+    }
+    let (urgent, rest): (Vec<_>, Vec<_>) = pending
+        .into_iter()
+        .partition(|r| matches!(r, WorkerRequest::FetchBody(..) | WorkerRequest::FetchAttachment(..)));
+    for req in urgent {
+        handle_request(ctx, st, s, caps, req).await?;
+    }
+    let mut seen_folders = HashSet::new();
+    for req in rest {
+        if let WorkerRequest::SyncFolder(f) = &req {
+            if !seen_folders.insert(*f) {
+                continue;
+            }
+        }
+        handle_request(ctx, st, s, caps, req).await?;
+    }
+    Ok(())
+}
+
+/// Télécharge un lot de corps en arrière-plan, en laissant passer les demandes de l'utilisateur.
+async fn fetch_bodies(
+    ctx: &WorkerCtx,
+    st: &mut State,
+    rx: &mut mpsc::Receiver<WorkerRequest>,
+    s: &mut ImapSession,
+    caps: &Caps,
+    ids: Vec<MessageId>,
+) -> Result<()> {
+    for id in ids.into_iter().take(20) {
+        drain_requests(ctx, st, rx, s, caps, None).await?;
+        match timed(fetch_body(s, &ctx.store, ctx.events.as_ref(), id)).await {
+            Ok(()) | Err(CoreError::NotFound) => {}
+            Err(CoreError::Parse(m)) => {
+                st.failed_bodies.insert(id);
+                return Err(CoreError::Parse(m));
+            }
+            Err(e) if is_fatal(&e) => return Err(e),
+            Err(e) => {
+                tracing::warn!(message = id, "corps non récupéré : {e}");
+                st.failed_bodies.insert(id);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn connected(
     ctx: &WorkerCtx,
     st: &mut State,
@@ -282,25 +354,30 @@ async fn connected(
     account: &Account,
     password: &str,
 ) -> Result<Exit> {
+    // Actions faites hors ligne : envoyées avant toute relecture des drapeaux du serveur.
+    ctx.store.ops_due_now(ctx.account)?;
+    timed(run_due_ops(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &ctx.cfg)).await?;
+
     // Dossiers.
     let folders = timed(list_folders(&mut s)).await?;
     ctx.store.upsert_folders(ctx.account, &folders)?;
     ctx.events.emit(CoreEvent::FoldersChanged { account_id: ctx.account });
     let all = ctx.store.syncable_folders(ctx.account)?;
     let inbox = all.iter().find(|f| f.2 == FolderRole::Inbox).map(|f| (f.0, f.1.clone()));
+    // Les dossiers disparus (renommés, supprimés ailleurs) ne gardent ni historique en attente ni mode sûr.
+    let live: HashSet<FolderId> = all.iter().map(|f| f.0).collect();
+    st.backlogs.retain(|id, _| live.contains(id));
+    st.safe_mode.retain(|id| live.contains(id));
 
     // Premier tour : boîte de réception d'abord, puis les autres.
     for (id, path, _) in &all {
-        if let Ok(req) = rx.try_recv() {
-            handle_request(ctx, st, &mut s, &caps, req).await?;
-        }
+        drain_requests(ctx, st, rx, &mut s, &caps, None).await?;
         sync_one(ctx, st, &mut s, &caps, *id, path).await?;
     }
     ctx.set_status(st, AccountStatus::Ok, None);
-    ctx.store.ops_due_now(ctx.account)?;
 
     // IDLE (ou sondage si le serveur ne le gère pas).
-    let (idle_tx, mut idle_rx) = mpsc::channel::<()>(8);
+    let (idle_tx, mut idle_rx) = mpsc::channel::<IdleMsg>(8);
     let _idle = caps
         .idle
         .then(|| AbortOnDrop(tokio::spawn(idle_loop(account.clone(), password.to_string(), ctx.cfg.clone(), idle_tx))));
@@ -310,14 +387,15 @@ async fn connected(
     let mut next_other = Instant::now() + ctx.cfg.other_folders_interval;
     loop {
         // 1. Demandes de l'utilisateur.
-        while let Ok(req) = rx.try_recv() {
-            handle_request(ctx, st, &mut s, &caps, req).await?;
-        }
+        drain_requests(ctx, st, rx, &mut s, &caps, None).await?;
         // 2. Actions en attente.
         timed(run_due_ops(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &ctx.cfg)).await?;
         // 3. Signaux et minuteries.
-        while idle_rx.try_recv().is_ok() {
-            inbox_dirty = true;
+        while let Ok(msg) = idle_rx.try_recv() {
+            match msg {
+                IdleMsg::Changed => inbox_dirty = true,
+                IdleMsg::AuthFailed(m) => return Err(CoreError::Auth(m)),
+            }
         }
         let now = Instant::now();
         if !caps.idle && now >= next_poll {
@@ -340,56 +418,57 @@ async fn connected(
             }
             continue;
         }
-        // 4. Historique des en-têtes (boîte de réception d'abord).
+        // 4. Corps récents (lecture hors ligne et extraits), avant l'historique.
+        let since = now_ts() - ctx.cfg.recent_body_days * 86_400;
+        let extra = st.failed_bodies.len() as u32;
+        let mut recent: Vec<MessageId> = ctx.store.recent_without_body(ctx.account, since, 20 + extra)?;
+        recent.retain(|id| !st.failed_bodies.contains(id));
+        if !recent.is_empty() {
+            fetch_bodies(ctx, st, rx, &mut s, &caps, recent).await?;
+            continue;
+        }
+        // 5. Historique des en-têtes (boîte de réception d'abord).
         let pending = inbox
             .as_ref()
             .map(|i| i.0)
             .filter(|id| st.backlogs.get(id).is_some_and(|b| !b.pending_desc.is_empty()))
             .or_else(|| st.backlogs.iter().find(|(_, b)| !b.pending_desc.is_empty()).map(|(id, _)| *id));
         if let Some(folder) = pending {
-            let path = ctx.store.folder_path(folder)?;
             let structure = !st.safe_mode.contains(&folder);
             let mut backlog = st.backlogs.remove(&folder).unwrap_or_default();
-            let r = timed(backfill_step(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &path, &mut backlog, &ctx.cfg, structure)).await;
-            st.backlogs.insert(folder, backlog);
+            let r = match ctx.store.folder_path(folder) {
+                Ok(path) => {
+                    timed(backfill_step(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &path, &mut backlog, &ctx.cfg, structure))
+                        .await
+                }
+                Err(e) => Err(e),
+            };
             match r {
                 Ok(()) => {
                     st.safe_mode.remove(&folder);
+                    st.backlogs.insert(folder, backlog);
                 }
                 Err(CoreError::Parse(m)) => {
                     st.safe_mode.insert(folder);
+                    st.backlogs.insert(folder, backlog);
                     return Err(CoreError::Parse(m));
                 }
-                Err(e) => return Err(e),
+                Err(e) if is_fatal(&e) => {
+                    st.backlogs.insert(folder, backlog);
+                    return Err(e);
+                }
+                Err(e) => {
+                    // Dossier disparu ou refus du serveur : on abandonne son historique pour cette session.
+                    tracing::warn!(folder, "historique du dossier abandonné : {e}");
+                }
             }
             continue;
         }
-        // 5. Corps : récents d'abord, puis le reste.
-        let since = now_ts() - ctx.cfg.recent_body_days * 86_400;
-        let extra = st.failed_bodies.len() as u32;
-        let mut ids: Vec<MessageId> = ctx.store.recent_without_body(ctx.account, since, 20 + extra)?;
-        if ids.iter().all(|id| st.failed_bodies.contains(id)) {
-            ids = ctx.store.any_without_body(ctx.account, 20 + extra)?;
-        }
-        ids.retain(|id| !st.failed_bodies.contains(id));
-        if !ids.is_empty() {
-            for id in ids.into_iter().take(20) {
-                if let Ok(req) = rx.try_recv() {
-                    handle_request(ctx, st, &mut s, &caps, req).await?;
-                }
-                match timed(fetch_body(&mut s, &ctx.store, ctx.events.as_ref(), id)).await {
-                    Ok(()) | Err(CoreError::NotFound) => {}
-                    Err(CoreError::Parse(m)) => {
-                        st.failed_bodies.insert(id);
-                        return Err(CoreError::Parse(m));
-                    }
-                    Err(e) if is_fatal(&e) => return Err(e),
-                    Err(e) => {
-                        tracing::warn!(message = id, "corps non récupéré : {e}");
-                        st.failed_bodies.insert(id);
-                    }
-                }
-            }
+        // 6. Corps plus anciens.
+        let mut old: Vec<MessageId> = ctx.store.any_without_body(ctx.account, 20 + extra)?;
+        old.retain(|id| !st.failed_bodies.contains(id));
+        if !old.is_empty() {
+            fetch_bodies(ctx, st, rx, &mut s, &caps, old).await?;
             continue;
         }
         // 6. Rien à faire : on attend un signal.
@@ -403,13 +482,16 @@ async fn connected(
         }
         tokio::select! {
             r = rx.recv() => match r {
-                Some(req) => handle_request(ctx, st, &mut s, &caps, req).await?,
+                Some(req) => drain_requests(ctx, st, rx, &mut s, &caps, Some(req)).await?,
                 None => {
                     let _ = s.logout().await;
                     return Ok(Exit::Shutdown);
                 }
             },
-            Some(()) = idle_rx.recv() => inbox_dirty = true,
+            Some(msg) = idle_rx.recv() => match msg {
+                IdleMsg::Changed => inbox_dirty = true,
+                IdleMsg::AuthFailed(m) => return Err(CoreError::Auth(m)),
+            },
             _ = tokio::time::sleep_until(tokio::time::Instant::from_std(wake)) => {}
         }
     }

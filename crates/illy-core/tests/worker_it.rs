@@ -150,3 +150,43 @@ async fn broken_mail_does_not_block_sync() {
     assert!(wait_until(10, || e.store.get_account(e.acc).unwrap().status == AccountStatus::Ok).await);
     e.mgr.stop(e.acc);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn folder_deleted_during_history_does_not_loop() {
+    let gm = GreenMail::start();
+    gm.append_many("Archives", 1, 1500).await;
+    let e = env(gm, PASSWORD, WorkerConfig { header_batch: 5, ..fast_cfg() });
+    e.mgr.start(e.acc);
+    let archives = || e.store.syncable_folders(e.acc).unwrap().into_iter().find(|f| f.1 == "Archives").map(|f| f.0);
+    assert!(wait_until(10, || archives().is_some_and(|f| e.store.count_messages(ListScope::Folder(f)).unwrap() > 0)).await);
+    {
+        let mut s = e.gm.session().await;
+        s.delete("Archives").await.unwrap();
+        let _ = s.logout().await;
+    }
+    tokio::time::sleep(Duration::from_secs(6)).await;
+    let offline = e
+        .sink
+        .events()
+        .iter()
+        .filter(|x| matches!(x, CoreEvent::AccountStatus { status: AccountStatus::Offline, .. }))
+        .count();
+    assert!(offline <= 1, "reconnect loop: {offline} offline events");
+    assert!(wait_until(10, || e.store.get_account(e.acc).unwrap().status == AccountStatus::Ok).await);
+    e.mgr.stop(e.acc);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn recent_bodies_come_before_full_history() {
+    let gm = GreenMail::start();
+    gm.append_many("INBOX", 1, 400).await;
+    let e = env(gm, PASSWORD, WorkerConfig { header_batch: 10, recent_body_days: 100_000, ..fast_cfg() });
+    e.mgr.start(e.acc);
+    assert!(wait_until(10, || count(&e.store, e.acc) > 0).await);
+    let f = inbox(&e.store, e.acc).unwrap();
+    let newest = e.store.list_messages(ListScope::Folder(f), 0, 1).unwrap()[0].id;
+    assert!(wait_until(10, || e.store.message_detail(newest, false).unwrap().is_some()).await);
+    let headers_when_first_body_ready = count(&e.store, e.acc);
+    assert!(headers_when_first_body_ready < 400, "bodies waited for the whole history ({headers_when_first_body_ready} headers)");
+    e.mgr.stop(e.acc);
+}

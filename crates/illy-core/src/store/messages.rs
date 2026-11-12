@@ -59,6 +59,16 @@ fn row_to_part(r: &Row) -> rusqlite::Result<PartInfo> {
 
 const PART_COLS: &str = "part_path, mime_type, filename, size, content_id, encoding, charset, kind";
 
+/// UID d'un dossier dont l'état « lu » local attend d'être envoyé au serveur.
+fn pending_seen_uids(c: &rusqlite::Connection, folder: FolderId) -> rusqlite::Result<std::collections::HashSet<u32>> {
+    let mut st = c.prepare(
+        "SELECT json_extract(payload_json, '$.uid') FROM ops \
+         WHERE kind = 'set_seen' AND json_extract(payload_json, '$.folderId') = ?1",
+    )?;
+    let v = st.query_map([folder], |r| r.get::<_, Option<u32>>(0))?.filter_map(|r| r.ok().flatten()).collect();
+    Ok(v)
+}
+
 impl Store {
     /// Insère les nouveaux en-têtes (et leurs parties) ; met à jour les drapeaux des existants.
     /// Retourne le nombre de mails ajoutés.
@@ -66,6 +76,7 @@ impl Store {
         self.with(|c| {
             let tx = c.transaction()?;
             let mut added = 0;
+            let pending = pending_seen_uids(&tx, folder)?;
             {
                 let mut ins = tx.prepare(
                     "INSERT OR IGNORE INTO messages (account_id, folder_id, uid, message_id, in_reply_to, refs, \
@@ -100,7 +111,9 @@ impl Store {
                         h.size as i64
                     ])?;
                     if n == 0 {
-                        upd.execute(params![h.seen, h.answered, folder, h.uid])?;
+                        if !pending.contains(&h.uid) {
+                            upd.execute(params![h.seen, h.answered, folder, h.uid])?;
+                        }
                         continue;
                     }
                     added += 1;
@@ -160,12 +173,16 @@ impl Store {
         self.with(|c| {
             let tx = c.transaction()?;
             let mut changed = Vec::new();
+            let pending = pending_seen_uids(&tx, folder)?;
             {
                 let mut q = tx.prepare(
                     "UPDATE messages SET seen = ?1, answered = ?2 \
                      WHERE folder_id = ?3 AND uid = ?4 AND (seen != ?1 OR answered != ?2) RETURNING id",
                 )?;
                 for (uid, seen, answered) in flags {
+                    if pending.contains(uid) {
+                        continue;
+                    }
                     if let Some(id) = q.query_row(params![seen, answered, folder, uid], |r| r.get(0)).optional()? {
                         changed.push(id);
                     }
@@ -523,6 +540,21 @@ pub(crate) mod tests {
         let id1 = s.list_messages(ListScope::Folder(f[0]), 0, 10).unwrap().into_iter().find(|m| m.date == 1).unwrap().id;
         assert_eq!(changed, vec![id1]);
         assert_eq!(s.list_folders(a).unwrap()[0].unread_count, 1);
+    }
+
+    #[test]
+    fn pending_seen_is_not_overwritten_by_server_flags() {
+        let s = Store::open_in_memory().unwrap();
+        let (a, f) = setup(&s, "a@x.fr", &[("INBOX", FolderRole::Inbox)]);
+        s.upsert_headers(a, f[0], &[header(1, 1, "m@x"), header(2, 2, "m@x")]).unwrap();
+        let id1 = s.message_id_by_uid(f[0], 1).unwrap().unwrap();
+        s.set_seen_local(id1, true).unwrap();
+        s.enqueue_op(a, crate::store::OpKind::SetSeen, serde_json::json!({"folderId": f[0], "uid": 1, "seen": true})).unwrap();
+        // Le serveur ne sait pas encore que le mail a été lu.
+        assert!(s.apply_flags(f[0], &[(1, false, false), (2, true, false)]).unwrap().len() == 1);
+        s.upsert_headers(a, f[0], &[header(1, 1, "m@x")]).unwrap();
+        let seen: Vec<bool> = s.list_messages(ListScope::Folder(f[0]), 0, 10).unwrap().iter().map(|m| m.seen).collect();
+        assert_eq!(seen, vec![true, true], "uid 2 updated from server, uid 1 keeps its pending local read");
     }
 
     #[test]

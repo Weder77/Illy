@@ -162,6 +162,9 @@ impl GreenMail {
     /// Dépose `n` mails simples (numérotés à partir de `from`) avec une seule session.
     pub async fn append_many(&self, folder: &str, from: u32, n: u32) {
         let mut s = self.session().await;
+        if !folder.eq_ignore_ascii_case("INBOX") {
+            let _ = s.create(folder).await;
+        }
         for i in from..from + n {
             s.append(folder, None, None, simple_eml(i)).await.expect("append");
         }
