@@ -64,16 +64,24 @@ pub fn imap_err(e: async_imap::error::Error) -> CoreError {
     }
 }
 
+/// Vérification TLS par le système (magasin de certificats Windows) : les antivirus qui
+/// inspectent les connexions chiffrées y installent leur autorité. Repli : racines Mozilla.
 fn tls_config() -> Arc<rustls::ClientConfig> {
     static CFG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     CFG.get_or_init(|| {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let cfg = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let builder = rustls::ClientConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
-            .expect("protocoles TLS par défaut")
-            .with_root_certificates(roots)
-            .with_no_client_auth();
+            .expect("protocoles TLS par défaut");
+        let cfg = match rustls_platform_verifier::Verifier::new(provider) {
+            Ok(v) => builder.dangerous().with_custom_certificate_verifier(Arc::new(v)).with_no_client_auth(),
+            Err(e) => {
+                tracing::warn!("vérificateur TLS du système indisponible ({e}), racines Mozilla utilisées");
+                let mut roots = rustls::RootCertStore::empty();
+                roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+                builder.with_root_certificates(roots).with_no_client_auth()
+            }
+        };
         Arc::new(cfg)
     })
     .clone()

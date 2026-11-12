@@ -16,10 +16,38 @@ pub struct GreenMail {
     child: Child,
     pub imap_port: u16,
     pub smtp_port: u16,
+    pub imaps_port: u16,
 }
 
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+fn login_works(port: u16) -> bool {
+    use std::io::Write;
+    let Ok(s) = TcpStream::connect(("127.0.0.1", port)) else { return false };
+    s.set_read_timeout(Some(Duration::from_secs(2))).ok();
+    let mut reader = BufReader::new(s.try_clone().unwrap());
+    let mut line = String::new();
+    if reader.read_line(&mut line).is_err() || !line.starts_with("* OK") {
+        return false;
+    }
+    if (&s).write_all(format!("a1 LOGIN {USER} {PASSWORD}\r\n").as_bytes()).is_err() {
+        return false;
+    }
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(n) if n > 0 => {
+                if line.starts_with("a1 ") {
+                    let ok = line.starts_with("a1 OK");
+                    let _ = (&s).write_all(b"a2 LOGOUT\r\n");
+                    return ok;
+                }
+            }
+            _ => return false,
+        }
+    }
 }
 
 fn jar() -> String {
@@ -28,12 +56,14 @@ fn jar() -> String {
 
 impl GreenMail {
     pub fn start() -> GreenMail {
-        let (imap_port, smtp_port) = (free_port(), free_port());
+        let (imap_port, smtp_port, imaps_port) = (free_port(), free_port(), free_port());
         let child = Command::new("java")
             .arg(format!("-Dgreenmail.imap.port={imap_port}"))
             .arg("-Dgreenmail.imap.hostname=127.0.0.1")
             .arg(format!("-Dgreenmail.smtp.port={smtp_port}"))
             .arg("-Dgreenmail.smtp.hostname=127.0.0.1")
+            .arg(format!("-Dgreenmail.imaps.port={imaps_port}"))
+            .arg("-Dgreenmail.imaps.hostname=127.0.0.1")
             .arg(format!("-Dgreenmail.users=alice:{PASSWORD}@localhost"))
             .arg("-Dgreenmail.users.login=email")
             .arg("-jar")
@@ -42,17 +72,12 @@ impl GreenMail {
             .stderr(Stdio::null())
             .spawn()
             .expect("java + target/greenmail/greenmail-standalone.jar (scripts/fetch-greenmail.sh)");
-        let gm = GreenMail { child, imap_port, smtp_port };
+        let gm = GreenMail { child, imap_port, smtp_port, imaps_port };
+        // Prêt = un vrai LOGIN réussit (les utilisateurs sont créés après l'ouverture des ports).
         let deadline = Instant::now() + Duration::from_secs(30);
         loop {
-            if let Ok(s) = TcpStream::connect(("127.0.0.1", imap_port)) {
-                let mut line = String::new();
-                s.set_read_timeout(Some(Duration::from_secs(2))).ok();
-                if BufReader::new(s).read_line(&mut line).is_ok() && line.starts_with("* OK")
-                    && TcpStream::connect(("127.0.0.1", smtp_port)).is_ok()
-                {
-                    return gm;
-                }
+            if login_works(imap_port) && TcpStream::connect(("127.0.0.1", smtp_port)).is_ok() {
+                return gm;
             }
             assert!(Instant::now() < deadline, "GreenMail n'a pas démarré");
             std::thread::sleep(Duration::from_millis(100));

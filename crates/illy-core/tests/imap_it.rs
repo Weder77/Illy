@@ -128,3 +128,12 @@ async fn broken_structure_is_parse_error_then_safe_fetch_works() {
     let raw = fetch_full(&mut s, uids[0]).await.unwrap();
     assert!(raw.starts_with(b"From: broken"), "{:?}", String::from_utf8_lossy(&raw));
 }
+
+#[tokio::test]
+async fn untrusted_certificate_is_refused() {
+    let gm = GreenMail::start();
+    // GreenMail présente un certificat auto-signé : il ne doit jamais être accepté.
+    let cfg = ServerConfig { host: "localhost".into(), port: gm.imaps_port, tls: TlsMode::Implicit };
+    let r = connect(&cfg, USER, PASSWORD).await;
+    assert!(matches!(r, Err(CoreError::Tls(_))), "{:?}", r.err());
+}
