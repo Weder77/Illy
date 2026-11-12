@@ -9,6 +9,7 @@ import { saveOpenComposers } from './features/composer/Composer';
 import { SendBanner } from './features/outbox/SendBanner';
 import { SettingsPanel } from './features/settings/SettingsPanel';
 import { Sidebar } from './features/sidebar/Sidebar';
+import { UpdateBanner } from './features/updates/UpdateBanner';
 import { useAppearance } from './ui/appearance';
 import { TitleBar } from './ui/TitleBar';
 import styles from './App.module.css';
@@ -41,6 +42,7 @@ export default function App() {
   return (
     <div className={styles.window} data-testid="app-root">
       <TitleBar accounts={accounts} outbox={outbox} />
+      <UpdateBanner />
       <main className={styles.panels}>
         <section className={styles.panel} data-testid="panel-sidebar" aria-label="Boîtes">
           <Sidebar />
