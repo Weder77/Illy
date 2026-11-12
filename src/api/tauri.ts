@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import type { Api } from './index';
 import type { CoreEvent } from './types';
 
@@ -24,16 +25,54 @@ export const tauriApi: Api = {
     else if (action === 'toggleMaximize') await w.toggleMaximize();
     else await w.close();
   },
-  onEvent: (cb) => {
-    let off: (() => void) | null = null;
-    let cancelled = false;
-    listen<CoreEvent>('core-event', (e) => cb(e.payload)).then((unlisten) => {
-      if (cancelled) unlisten();
-      else off = unlisten;
-    });
-    return () => {
-      cancelled = true;
-      off?.();
-    };
-  },
+  onEvent: (cb) => subscription(listen<CoreEvent>('core-event', (e) => cb(e.payload))),
+  searchContacts: (query) => invoke('search_contacts', { query }),
+  createDraft: (kind, accountId, sourceMessageId) =>
+    invoke('create_draft', { kind, accountId: accountId ?? null, sourceMessageId: sourceMessageId ?? null }),
+  draftForMessage: (messageId) => invoke('draft_for_message', { messageId }),
+  draftFromMessage: (messageId) => invoke('draft_from_message', { messageId }),
+  getDraft: (draftId) => invoke('get_draft', { draftId }),
+  updateDraft: (input) => invoke('update_draft', { input }),
+  pickAttachments: (draftId) => invoke('pick_attachments', { draftId }),
+  addAttachments: (draftId, paths) => invoke('add_attachments', { draftId, paths }),
+  removeAttachment: (draftId, index) => invoke('remove_attachment', { draftId, index }),
+  closeDraft: (draftId) => invoke('close_draft', { draftId }),
+  discardDraft: (draftId) => invoke('discard_draft', { draftId }),
+  sendDraft: (draftId) => invoke('send_draft', { draftId }),
+  cancelSend: (draftId) => invoke('cancel_send', { draftId }),
+  listOutbox: () => invoke('list_outbox'),
+  getSettings: () => invoke('get_settings'),
+  setSetting: (key, value) => invoke('set_setting', { key, value }),
+  openComposeWindow: (draftId) => invoke('open_compose_window', { draftId }),
+  onWindowCloseRequested: (cb) =>
+    subscription(
+      getCurrentWindow().onCloseRequested(async (event) => {
+        event.preventDefault();
+        try {
+          await cb();
+        } finally {
+          await getCurrentWindow().destroy();
+        }
+      }),
+    ),
+  onFileDrop: (cb) =>
+    subscription(
+      getCurrentWebview().onDragDropEvent((e) => {
+        if (e.payload.type === 'drop' && e.payload.paths.length > 0) cb(e.payload.paths);
+      }),
+    ),
 };
+
+/** Abonnement Tauri (promesse d'un désabonnement) vu comme une fonction de désabonnement immédiate. */
+function subscription(p: Promise<() => void>): () => void {
+  let off: (() => void) | null = null;
+  let cancelled = false;
+  void p.then((unlisten) => {
+    if (cancelled) unlisten();
+    else off = unlisten;
+  });
+  return () => {
+    cancelled = true;
+    off?.();
+  };
+}

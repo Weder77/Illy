@@ -89,12 +89,90 @@ export interface ProviderGuess {
   smtp: ServerConfig | null;
 }
 
+export type DraftKind = 'new' | 'reply' | 'reply_all' | 'forward';
+export type DraftState = 'editing' | 'queued' | 'sending' | 'sent' | 'failed';
+
+export type AttachmentSource =
+  | { kind: 'file'; path: string }
+  | { kind: 'part'; messageId: number; partPath: string };
+
+export interface DraftAttachment {
+  filename: string;
+  mimeType: string;
+  size: number;
+  source: AttachmentSource;
+}
+
+export interface Draft {
+  id: number;
+  accountId: number;
+  kind: DraftKind;
+  sourceMessageId: number | null;
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+  attachments: DraftAttachment[];
+  state: DraftState;
+  lastError: string | null;
+  /** Échéance d'envoi (secondes Unix) : fin du délai d'annulation. */
+  sendAt: number | null;
+  remoteUid: number | null;
+  updatedAt: number;
+}
+
+export interface DraftInput {
+  id: number;
+  accountId: number;
+  to: Address[];
+  cc: Address[];
+  bcc: Address[];
+  subject: string;
+  bodyHtml: string;
+}
+
+export interface SendTicket {
+  sendAt: number;
+}
+
+export type RemoteImages = 'block' | 'always';
+export type Theme = 'dark' | 'light' | 'system';
+export type Accent = 'blue' | 'violet' | 'green' | 'orange' | 'pink' | 'teal';
+export type TextSize = 'small' | 'normal' | 'large';
+export type Density = 'comfortable' | 'compact';
+
+export interface Settings {
+  undoSendSeconds: number;
+  remoteImages: RemoteImages;
+  theme: Theme;
+  accent: Accent;
+  textSize: TextSize;
+  density: Density;
+  showSnippet: boolean;
+}
+
+/** Clés acceptées par `setSetting` (noms de la table `settings`). */
+export type SettingKey = 'undo_send_seconds' | 'remote_images' | 'theme' | 'accent' | 'text_size' | 'density' | 'show_snippet';
+
+export const defaultSettings: Settings = {
+  undoSendSeconds: 10,
+  remoteImages: 'block',
+  theme: 'dark',
+  accent: 'blue',
+  textSize: 'normal',
+  density: 'comfortable',
+  showSnippet: true,
+};
+
 export type CoreEvent =
   | { type: 'account_status'; accountId: number; status: AccountStatus; error: string | null }
   | { type: 'folders_changed'; accountId: number }
   | { type: 'folder_changed'; accountId: number; folderId: number }
   | { type: 'message_updated'; messageId: number }
-  | { type: 'sync_progress'; accountId: number; folderId: number; fetched: number; total: number };
+  | { type: 'sync_progress'; accountId: number; folderId: number; fetched: number; total: number }
+  | { type: 'outbox_changed'; draftId: number; state: DraftState; sendAt: number | null; error: string | null }
+  | { type: 'settings_changed'; key: string };
 
 export interface ApiError {
   kind: string;

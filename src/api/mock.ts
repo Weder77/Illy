@@ -1,6 +1,7 @@
 // Données fictives pour développer l'interface dans un navigateur (npm run dev).
 import type { Api } from './index';
-import type { Account, Folder, MessageDetail, MessageSummary } from './types';
+import type { Account, Address, CoreEvent, Draft, DraftKind, Folder, MessageDetail, MessageSummary, Settings } from './types';
+import { defaultSettings } from './types';
 
 const delay = <T>(v: T, ms = 50) => new Promise<T>((r) => setTimeout(() => r(v), ms));
 const server = { host: 'imap.exemple.fr', port: 993, tls: 'implicit' as const };
@@ -91,6 +92,51 @@ function inScope(m: MessageSummary, scope: Parameters<Api['listMessages']>[0]) {
   return scope.kind === 'unified_inbox' ? m.folderId % 100 === 0 : m.folderId === scope.folderId;
 }
 
+// --- Rédaction en mémoire ---
+const listeners = new Set<(e: CoreEvent) => void>();
+const emit = (e: CoreEvent) => listeners.forEach((cb) => cb(e));
+const drafts = new Map<number, Draft>();
+const sendTimers = new Map<number, ReturnType<typeof setTimeout>>();
+let nextDraftId = 1;
+let settings: Settings = { ...defaultSettings };
+const contacts: Address[] = senders.map((s) => ({ name: s[0], email: s[1] }));
+const fold = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function getDraft(id: number): Draft {
+  const d = drafts.get(id);
+  if (!d) throw { kind: 'not_found', message: 'brouillon introuvable' };
+  return d;
+}
+
+function newDraft(kind: DraftKind, accountId?: number, source?: number): Draft {
+  const src = source ? messages.find((m) => m.id === source) : undefined;
+  const prefix = kind === 'forward' ? 'Fwd: ' : kind === 'new' ? '' : 'Re: ';
+  const d: Draft = {
+    id: nextDraftId++,
+    accountId: src?.accountId ?? accountId ?? accounts[0].id,
+    kind,
+    sourceMessageId: src?.id ?? null,
+    to: src && kind !== 'forward' ? [src.from] : [],
+    cc: [],
+    bcc: [],
+    subject: src ? prefix + src.subject : '',
+    bodyHtml: src ? `<p></p><p>Le ${new Date(src.date * 1000).toLocaleString('fr-FR')}, ${src.from.name} a écrit :</p><blockquote><p>${src.snippet}</p></blockquote>` : '<p></p>',
+    attachments: kind === 'forward' && src?.hasAttachments ? [{ filename: 'devis-cuisine.pdf', mimeType: 'application/pdf', size: 253_952, source: { kind: 'part', messageId: src.id, partPath: '2' } }] : [],
+    state: 'editing',
+    lastError: null,
+    sendAt: null,
+    remoteUid: null,
+    updatedAt: now,
+  };
+  drafts.set(d.id, d);
+  return d;
+}
+
+function setDraft(d: Draft): Draft {
+  drafts.set(d.id, d);
+  return d;
+}
+
 export const mockApi: Api = {
   detectProvider: async (email) => {
     const d = email.split('@').pop()?.toLowerCase() ?? '';
@@ -113,5 +159,83 @@ export const mockApi: Api = {
     window.open(url, '_blank', 'noopener');
   },
   windowAction: async () => undefined,
-  onEvent: () => () => undefined,
+  onEvent: (cb) => {
+    listeners.add(cb);
+    return () => listeners.delete(cb);
+  },
+  searchContacts: async (query) => {
+    const q = fold(query.trim());
+    return delay(q ? contacts.filter((c) => ` ${fold(c.email)} ${fold(c.name ?? '')}`.includes(` ${q}`)).slice(0, 8) : []);
+  },
+  createDraft: async (kind, accountId, sourceMessageId) => delay(newDraft(kind, accountId, sourceMessageId)),
+  draftForMessage: async (messageId) =>
+    delay([...drafts.values()].find((d) => d.sourceMessageId === messageId && d.state === 'editing') ?? null),
+  draftFromMessage: async (messageId) => delay(newDraft('new', undefined, undefined), 80).then((d) => {
+    const src = messages.find((m) => m.id === messageId);
+    return setDraft({ ...d, subject: src?.subject ?? '', bodyHtml: `<p>${src?.snippet ?? ''}</p>`, remoteUid: messageId });
+  }),
+  // Une fenêtre « Nouveau mail » du navigateur a son propre mock : le brouillon y est recréé.
+  getDraft: async (draftId) => delay(drafts.get(draftId) ?? setDraft({ ...newDraft('new'), id: draftId })),
+  updateDraft: async (input) => {
+    const d = getDraft(input.id);
+    if (d.state !== 'editing' && d.state !== 'failed') throw { kind: 'invalid_input', message: "brouillon en cours d'envoi" };
+    return delay(setDraft({ ...d, ...input, updatedAt: Math.floor(Date.now() / 1000) }));
+  },
+  pickAttachments: async (draftId) => {
+    const d = getDraft(draftId);
+    const file = { filename: 'photo-chantier.jpg', mimeType: 'image/jpeg', size: 1_843_200, source: { kind: 'file' as const, path: 'C:/photo-chantier.jpg' } };
+    return delay(setDraft({ ...d, attachments: [...d.attachments, file] }), 200);
+  },
+  addAttachments: async (draftId, paths) => {
+    const d = getDraft(draftId);
+    const files = paths.map((path) => ({ filename: path.split(/[\\/]/).pop() ?? path, mimeType: 'application/octet-stream', size: 120_000, source: { kind: 'file' as const, path } }));
+    return delay(setDraft({ ...d, attachments: [...d.attachments, ...files] }));
+  },
+  removeAttachment: async (draftId, index) => {
+    const d = getDraft(draftId);
+    return delay(setDraft({ ...d, attachments: d.attachments.filter((_, i) => i !== index) }));
+  },
+  closeDraft: async () => delay(undefined),
+  discardDraft: async (draftId) => {
+    drafts.delete(draftId);
+    return delay(undefined);
+  },
+  sendDraft: async (draftId) => {
+    const d = getDraft(draftId);
+    if (d.to.length + d.cc.length + d.bcc.length === 0) throw { kind: 'invalid_input', message: 'Ajoute au moins un destinataire.' };
+    const sendAt = Math.floor(Date.now() / 1000) + settings.undoSendSeconds;
+    setDraft({ ...d, state: 'queued', sendAt, lastError: null });
+    emit({ type: 'outbox_changed', draftId, state: 'queued', sendAt, error: null });
+    sendTimers.set(
+      draftId,
+      setTimeout(() => {
+        sendTimers.delete(draftId);
+        drafts.delete(draftId);
+        emit({ type: 'outbox_changed', draftId, state: 'sent', sendAt, error: null });
+      }, settings.undoSendSeconds * 1000),
+    );
+    return delay({ sendAt });
+  },
+  cancelSend: async (draftId) => {
+    const t = sendTimers.get(draftId);
+    if (!t) return delay(false);
+    clearTimeout(t);
+    sendTimers.delete(draftId);
+    const d = setDraft({ ...getDraft(draftId), state: 'editing', sendAt: null });
+    emit({ type: 'outbox_changed', draftId, state: 'editing', sendAt: null, error: null });
+    return delay(d.state === 'editing');
+  },
+  listOutbox: async () => delay([...drafts.values()].filter((d) => d.state === 'queued' || d.state === 'sending' || d.state === 'failed')),
+  getSettings: async () => delay(settings),
+  setSetting: async (key, value) => {
+    const camel = key.replace(/_(\w)/g, (_, c: string) => c.toUpperCase()) as keyof Settings;
+    settings = { ...settings, [camel]: value };
+    emit({ type: 'settings_changed', key });
+    return delay(settings);
+  },
+  openComposeWindow: async (draftId) => {
+    window.open(`${location.pathname}#compose/${draftId}`, `compose-${draftId}`, 'width=760,height=640');
+  },
+  onWindowCloseRequested: () => () => undefined,
+  onFileDrop: () => () => undefined,
 };
