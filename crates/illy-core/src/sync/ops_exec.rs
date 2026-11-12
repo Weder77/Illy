@@ -51,8 +51,8 @@ pub async fn run_due_ops(
                 store.op_done(op.id)?;
             }
         }
-        match op.kind {
-            OpKind::SetSeen => {
+        if op.kind == OpKind::SetSeen {
+            {
                 let folder: FolderId = op.payload["folderId"].as_i64().unwrap_or(-1);
                 let uid = op.payload["uid"].as_u64().unwrap_or(0) as u32;
                 let seen = op.payload["seen"].as_bool().unwrap_or(true);
@@ -87,7 +87,6 @@ pub async fn run_due_ops(
                     }
                 }
             }
-            _ => {}
         }
     }
     Ok(())

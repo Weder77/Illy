@@ -195,10 +195,7 @@ pub(crate) async fn exec_append_draft(
     let Some((_, path)) = store.folder_by_role(account.id, FolderRole::Drafts)? else {
         return store.op_done(op.id);
     };
-    let files = match collect_files(s, store, &d, false).await? {
-        Ok(f) => f,
-        Err(_) => Vec::new(),
-    };
+    let files = collect_files(s, store, &d, false).await?.unwrap_or_default();
     let reply = reply_source(store, &d);
     let built = match build_message(&sender(account), &d, reply.as_ref(), &files, Some(d.id)) {
         Ok(b) => b,
