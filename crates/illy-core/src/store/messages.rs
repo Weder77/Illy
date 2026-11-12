@@ -299,8 +299,8 @@ impl Store {
         if state != "ready" {
             return Ok(None);
         }
-        let allowed = remote && !show_images && self.images_allowed_for(&summary.from.email)?;
-        let images_blocked = remote && !show_images && !allowed;
+        let remote_images_allowed = show_images || self.images_allowed_for(&summary.from.email)?;
+        let images_blocked = remote && !remote_images_allowed;
         let body = match html {
             Some(h) if images_blocked => MessageBody::Html(h),
             Some(h) => MessageBody::Html(unblock_images(&h)),
@@ -332,6 +332,7 @@ impl Store {
             body,
             attachments,
             images_blocked,
+            remote_images_allowed,
             degraded,
         }))
     }
@@ -590,6 +591,19 @@ pub(crate) mod tests {
         assert!(matches!(&d.body, MessageBody::Html(h) if h.contains(r#"src="https://"#)));
         s.allow_images_from("marie@ex.fr").unwrap();
         assert!(!s.message_detail(id, false).unwrap().unwrap().images_blocked);
+    }
+
+    #[test]
+    fn remote_images_allowed_only_on_explicit_consent() {
+        let s = Store::open_in_memory().unwrap();
+        // Aucune image distante détectée : la CSP doit quand même rester fermée.
+        let (id, _) = with_body(&s, "<p>x</p>", false);
+        let d = s.message_detail(id, false).unwrap().unwrap();
+        assert!(!d.images_blocked);
+        assert!(!d.remote_images_allowed);
+        assert!(s.message_detail(id, true).unwrap().unwrap().remote_images_allowed);
+        s.allow_images_from("marie@ex.fr").unwrap();
+        assert!(s.message_detail(id, false).unwrap().unwrap().remote_images_allowed);
     }
 
     #[test]

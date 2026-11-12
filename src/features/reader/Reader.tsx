@@ -117,7 +117,7 @@ export function Reader() {
           />
         )}
         {d.degraded && <div className={styles.degraded}>Ce mail n'a pas pu être affiché correctement</div>}
-        <MailFrame body={d.body} allowRemoteImages={!d.imagesBlocked} />
+        <MailFrame body={d.body} allowRemoteImages={d.remoteImagesAllowed} />
         {d.attachments.length > 0 && (
           <Attachments
             items={d.attachments}

@@ -25,12 +25,27 @@ fn re(cell: &'static OnceLock<regex::Regex>, pat: &str) -> &'static regex::Regex
     cell.get_or_init(|| regex::Regex::new(pat).unwrap())
 }
 
-/// Remplace toute URL distante dans du CSS par `url()` et retire les `@import`.
+/// Décode les échappements CSS (`\75rl(` → `url(`) pour que rien n'échappe au filtre.
+fn unescape_css(css: &str) -> String {
+    static ESC: OnceLock<regex::Regex> = OnceLock::new();
+    re(&ESC, r"\\(?:([0-9a-fA-F]{1,6})\s?|(.))")
+        .replace_all(css, |c: &regex::Captures| match (c.get(1), c.get(2)) {
+            (Some(hex), _) => u32::from_str_radix(hex.as_str(), 16).ok().and_then(char::from_u32).map(String::from).unwrap_or_default(),
+            (None, Some(ch)) => ch.as_str().to_string(),
+            _ => String::new(),
+        })
+        .into_owned()
+}
+
+/// Supprime toute ressource distante d'un CSS : `url(http…)`, `image-set(…)`, `@import`.
 fn neutralize_css(css: &str) -> String {
     static URL: OnceLock<regex::Regex> = OnceLock::new();
     static IMPORT: OnceLock<regex::Regex> = OnceLock::new();
-    let no_import = re(&IMPORT, r#"(?i)@import\s+[^;]*;?"#).replace_all(css, "");
-    re(&URL, r#"(?i)url\(\s*(['"]?)\s*(https?:)?//[^)]*\)"#).replace_all(&no_import, "url()").into_owned()
+    static IMAGE_SET: OnceLock<regex::Regex> = OnceLock::new();
+    let plain = unescape_css(css);
+    let no_import = re(&IMPORT, r#"(?i)@import\s+[^;]*;?"#).replace_all(&plain, "");
+    let no_set = re(&IMAGE_SET, r#"(?i)(-webkit-)?image-set\((?:[^()]|\([^()]*\))*\)"#).replace_all(&no_import, "none");
+    re(&URL, r#"(?i)url\(\s*(['"]?)\s*(https?:)?//[^)]*\)"#).replace_all(&no_set, "url()").into_owned()
 }
 
 pub fn sanitize_html(html: &str, inline: &HashMap<String, (String, Vec<u8>)>) -> SanitizedHtml {
@@ -159,6 +174,20 @@ mod tests {
         )
         .html;
         assert!(!out.contains("t.example"), "{out}");
+    }
+
+    #[test]
+    fn neutralizes_image_set_and_css_escapes() {
+        for html in [
+            r#"<div style="background-image:image-set('https://t.example/x.png' 1x)">a</div>"#,
+            r#"<div style="background-image:-webkit-image-set(url(https://t.example/x.png) 1x)">a</div>"#,
+            r#"<div style="background:\75rl(https://t.example/y.png)">a</div>"#,
+            r#"<div style="background:u\72l( 'https://t.example/y.png' )">a</div>"#,
+            r#"<style>.a{background:\000075rl(https://t.example/z.png)} .b{background:image-set("https://t.example/w.png" 2x)}</style><p>x</p>"#,
+        ] {
+            let out = clean(html).html;
+            assert!(!out.contains("t.example"), "{html} → {out}");
+        }
     }
 
     #[test]

@@ -76,6 +76,8 @@ export interface MessageDetail {
   body: MessageBody;
   attachments: Attachment[];
   imagesBlocked: boolean;
+  /** Seul critère d'ouverture de la CSP aux images distantes. */
+  remoteImagesAllowed: boolean;
   degraded: boolean;
 }
 

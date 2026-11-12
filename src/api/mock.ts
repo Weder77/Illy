@@ -82,6 +82,7 @@ function detail(id: number, showImages: boolean): MessageDetail {
       { partPath: '3', filename: 'outil.exe', mimeType: 'application/octet-stream', size: 4096, canOpen: false },
     ],
     imagesBlocked,
+    remoteImagesAllowed: !imagesBlocked,
     degraded: false,
   };
 }

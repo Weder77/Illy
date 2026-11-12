@@ -137,6 +137,8 @@ pub struct MessageDetail {
     pub body: MessageBody,
     pub attachments: Vec<Attachment>,
     pub images_blocked: bool,
+    /// Images distantes autorisées explicitement (ce mail ou cet expéditeur) : seul critère d'ouverture de la CSP.
+    pub remote_images_allowed: bool,
     pub degraded: bool,
 }
 

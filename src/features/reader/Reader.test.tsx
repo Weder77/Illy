@@ -23,6 +23,7 @@ const detail = (over: Partial<MessageDetail> = {}): MessageDetail => ({
   body: { kind: 'html', content: '<p>Bonjour</p>' },
   attachments: [{ partPath: '2', filename: 'devis.pdf', mimeType: 'application/pdf', size: 253_952, canOpen: true }],
   imagesBlocked: false,
+  remoteImagesAllowed: false,
   degraded: false,
   ...over,
 });
@@ -117,4 +118,20 @@ test('formatSize', () => {
   expect(formatSize(512)).toBe('512 o');
   expect(formatSize(253_952)).toBe('248 Ko');
   expect(formatSize(3_355_443)).toBe('3,2 Mo');
+});
+
+test('iframe csp stays closed unless remote images were explicitly allowed', async () => {
+  fake.openMessage.mockResolvedValue(detail({ imagesBlocked: false, remoteImagesAllowed: false }));
+  select();
+  const { container } = render(<Reader />);
+  await screen.findByRole('heading', { name: 'Devis cuisine' });
+  expect(container.querySelector('iframe')!.getAttribute('srcdoc')).toContain('img-src data:;');
+});
+
+test('iframe csp opens when remote images are allowed', async () => {
+  fake.openMessage.mockResolvedValue(detail({ remoteImagesAllowed: true }));
+  select();
+  const { container } = render(<Reader />);
+  await screen.findByRole('heading', { name: 'Devis cuisine' });
+  expect(container.querySelector('iframe')!.getAttribute('srcdoc')).toContain('img-src data: https: http:;');
 });
