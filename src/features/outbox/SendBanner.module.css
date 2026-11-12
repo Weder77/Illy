@@ -19,9 +19,9 @@
   border-radius: var(--r-pill);
   background: var(--raised);
   border: 1px solid var(--border-strong);
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 12px 36px var(--shadow);
   color: var(--text);
-  font-size: 13px;
+  font-size: 0.9286rem;
   font-weight: 600;
   pointer-events: auto;
 }
@@ -44,7 +44,7 @@
   background: transparent;
   color: var(--accent-link);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 0.9286rem;
   cursor: pointer;
   padding: 2px;
 }

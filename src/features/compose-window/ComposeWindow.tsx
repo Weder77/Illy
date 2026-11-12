@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { api } from '../../api';
 import { useAppStore } from '../../state/store';
+import { useAppearance } from '../../ui/appearance';
 import { IconClose, IconMinus, IconPen, IconSquare } from '../../ui/icons';
 import titleStyles from '../../ui/TitleBar.module.css';
 import { Composer } from '../composer/Composer';
@@ -9,11 +10,20 @@ import styles from './ComposeWindow.module.css';
 /** Fenêtre « Nouveau mail » (`index.html#compose/<id>`) : barre de titre d'Illy et éditeur. */
 export function ComposeWindow({ draftId }: { draftId: number }) {
   const loadAccounts = useAppStore((s) => s.loadAccounts);
+  const loadSettings = useAppStore((s) => s.loadSettings);
+  const settings = useAppStore((s) => s.settings);
+  useAppearance(settings);
 
   useEffect(() => {
     document.title = 'Nouveau mail';
     void loadAccounts().catch(() => undefined);
-  }, [loadAccounts]);
+    void loadSettings().catch(() => undefined);
+    // Thème, accent… changés dans la fenêtre principale : appliqués ici aussi.
+    return api.onEvent((e) => {
+      if (e.type === 'settings_changed') void loadSettings().catch(() => undefined);
+      if (e.type === 'account_status' || e.type === 'folders_changed') void loadAccounts().catch(() => undefined);
+    });
+  }, [loadAccounts, loadSettings]);
 
   return (
     <div className={styles.window}>

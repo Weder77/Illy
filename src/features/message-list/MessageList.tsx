@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Key
 import { api } from '../../api';
 import type { MessageSummary } from '../../api/types';
 import { useAppStore } from '../../state/store';
+import { rowHeight } from '../../ui/appearance';
 import { ContextMenu } from '../../ui/ContextMenu';
 import { IconForward, IconReply, IconReplyAll } from '../../ui/icons';
 import { MessageRow } from './MessageRow';
@@ -10,7 +11,6 @@ import { SearchBar } from './SearchBar';
 import styles from './MessageList.module.css';
 
 const PAGE = 100;
-const ROW = 76;
 
 export function MessageList() {
   const scope = useAppStore((s) => s.selection.scope);
@@ -20,6 +20,8 @@ export function MessageList() {
   const folders = useAppStore((s) => s.folders);
   const selectMessage = useAppStore((s) => s.selectMessage);
   const openReply = useAppStore((s) => s.openReply);
+  const settings = useAppStore((s) => s.settings);
+  const ROW = rowHeight(settings.density, settings.showSnippet, settings.textSize);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
@@ -88,6 +90,8 @@ export function MessageList() {
     overscan: 10,
     initialRect: { width: 380, height: 800 },
   });
+  // Densité ou taille du texte changée : toutes les lignes changent de hauteur.
+  useEffect(() => virtualizer.measure(), [ROW, virtualizer]);
   const items = virtualizer.getVirtualItems();
 
   useEffect(() => {
@@ -156,6 +160,7 @@ export function MessageList() {
                   m={m}
                   style={style}
                   selected={m.id === selectedId}
+                  showSnippet={settings.showSnippet}
                   accountColor={scope.kind === 'unified_inbox' ? colors.get(m.accountId) : undefined}
                   onSelect={selectMessage}
                   onContextMenu={(id, at) => {

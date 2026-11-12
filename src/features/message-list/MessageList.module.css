@@ -10,11 +10,11 @@
   display: flex;
   align-items: baseline;
   gap: 8px;
-  font-size: 17px;
+  font-size: 1.2143rem;
   font-weight: 700;
 }
 .subtitle {
-  font-size: 12px;
+  font-size: 0.8571rem;
   color: var(--text-2);
   font-weight: 500;
   overflow: hidden;
@@ -46,7 +46,7 @@
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: 0.9286rem;
 }
 .searchField input:disabled {
   cursor: not-allowed;
@@ -58,7 +58,7 @@
   border: 1px solid var(--border-strong);
   background: transparent;
   color: var(--text-2);
-  font-size: 12.5px;
+  font-size: 0.8929rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -74,7 +74,7 @@
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: 0.8571rem;
   font-weight: 600;
 }
 .everywhere:disabled,
@@ -142,23 +142,23 @@
 .sender {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: 0.9643rem;
   font-weight: 500;
   color: var(--text-soft);
 }
 .date {
   flex: none;
-  font-size: 12px;
+  font-size: 0.8571rem;
   color: var(--text-2);
 }
 .subject {
   flex: 1;
   min-width: 0;
-  font-size: 13px;
+  font-size: 0.9286rem;
   color: var(--text-soft);
 }
 .snippet {
-  font-size: 12.5px;
+  font-size: 0.8929rem;
   color: var(--text-2);
 }
 .unread .sender,
@@ -176,7 +176,7 @@
   flex: none;
   border-radius: var(--r-pill);
   background: var(--accent);
-  box-shadow: 0 0 8px rgba(47, 123, 255, 0.8);
+  box-shadow: 0 0 8px rgba(var(--accent-rgb), 0.8);
 }
 .accountDot {
   width: 7px;
@@ -194,11 +194,11 @@
   right: 12px;
   height: 60px;
   border-radius: var(--r-row);
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  background: linear-gradient(90deg, var(--hover), var(--skeleton), var(--hover));
 }
 .empty {
   padding: 48px 24px;
   text-align: center;
   color: var(--text-2);
-  font-size: 13.5px;
+  font-size: 0.9643rem;
 }

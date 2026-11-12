@@ -1,3 +1,4 @@
+/* Jetons de couleur. Thème sombre par défaut ; [data-theme="light"] et [data-accent] les remplacent. */
 :root {
   --bg: #0d0f13;
   --panel: #16191f;
@@ -5,15 +6,21 @@
   --hover: rgba(255, 255, 255, 0.04);
   --border: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.12);
+  --skeleton: rgba(255, 255, 255, 0.05);
+  --scrollbar: rgba(255, 255, 255, 0.08);
+  --scrollbar-hover: rgba(255, 255, 255, 0.16);
+  --shadow: rgba(0, 0, 0, 0.5);
   --text: #f2f4f8;
   --text-soft: #c9ced6;
   --text-2: #8b93a1;
+  --title-btn: #aeb5c1;
+  /* Accent : valeur, fond des boutons à texte blanc (contraste 4,5:1), liens, composantes RGB. */
   --accent: #2f7bff;
-  /* Fond des boutons et pastilles à texte blanc (contraste 4,5:1). */
   --accent-strong: #2a6ff0;
   --accent-link: #6ea2ff;
-  --accent-glow: 0 0 18px rgba(47, 123, 255, 0.55);
-  --outline: 1px solid rgba(47, 123, 255, 0.35);
+  --accent-rgb: 47, 123, 255;
+  --accent-glow: 0 0 18px rgba(var(--accent-rgb), 0.55);
+  --outline: 1px solid rgba(var(--accent-rgb), 0.35);
   --warn: #f5a524;
   --error: #f25f5c;
   --r-panel: 20px;
@@ -21,4 +28,68 @@
   --r-pill: 999px;
   --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   color-scheme: dark;
+  font-size: 14px;
+}
+
+:root[data-theme='light'] {
+  --bg: #f4f6fa;
+  --panel: #ffffff;
+  --raised: #eef2f8;
+  --hover: rgba(16, 24, 40, 0.04);
+  --border: rgba(16, 24, 40, 0.08);
+  --border-strong: rgba(16, 24, 40, 0.14);
+  --skeleton: rgba(16, 24, 40, 0.05);
+  --scrollbar: rgba(16, 24, 40, 0.12);
+  --scrollbar-hover: rgba(16, 24, 40, 0.22);
+  --shadow: rgba(16, 24, 40, 0.18);
+  --text: #101828;
+  --text-soft: #344054;
+  --text-2: #667085;
+  --title-btn: #475467;
+  --accent-link: var(--accent-strong);
+  --accent-glow: 0 0 14px rgba(var(--accent-rgb), 0.25);
+  color-scheme: light;
+}
+
+:root[data-accent='violet'] {
+  --accent: #8b5cf6;
+  --accent-strong: #7c4deb;
+  --accent-link: #b39afb;
+  --accent-rgb: 139, 92, 246;
+}
+:root[data-accent='green'] {
+  --accent: #10b981;
+  --accent-strong: #0e8f64;
+  --accent-link: #4fd1a5;
+  --accent-rgb: 16, 185, 129;
+}
+:root[data-accent='orange'] {
+  --accent: #f59e0b;
+  --accent-strong: #b45309;
+  --accent-link: #fbbf4d;
+  --accent-rgb: 245, 158, 11;
+}
+:root[data-accent='pink'] {
+  --accent: #ec4899;
+  --accent-strong: #db2777;
+  --accent-link: #f48cc0;
+  --accent-rgb: 236, 72, 153;
+}
+:root[data-accent='teal'] {
+  --accent: #14b8a6;
+  --accent-strong: #0f8a7d;
+  --accent-link: #4fd6c7;
+  --accent-rgb: 20, 184, 166;
+}
+/* En clair, les liens prennent la teinte foncée de l'accent (lisible sur fond blanc). */
+:root[data-theme='light'][data-accent] {
+  --accent-link: var(--accent-strong);
+}
+
+/* Taille du texte : tout est en rem. */
+:root[data-text-size='small'] {
+  font-size: 13px;
+}
+:root[data-text-size='large'] {
+  font-size: 15.5px;
 }

@@ -7,6 +7,7 @@ import styles from './MessageList.module.css';
 export function MessageRow(props: {
   m: MessageSummary;
   selected: boolean;
+  showSnippet?: boolean;
   accountColor?: string;
   style: CSSProperties;
   onSelect: (id: number) => void;
@@ -43,7 +44,7 @@ export function MessageRow(props: {
         )}
         {!m.seen && <span data-testid="unread-dot" className={styles.unreadDot} />}
       </div>
-      {m.snippet && <div className={styles.snippet}>{m.snippet}</div>}
+      {props.showSnippet !== false && m.snippet && <div className={styles.snippet}>{m.snippet}</div>}
     </div>
   );
 }

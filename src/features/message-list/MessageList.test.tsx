@@ -101,3 +101,10 @@ test('right click opens menu with reply actions', async () => {
   await vi.waitFor(() => expect(useAppStore.getState().replyTarget).toEqual({ messageId: 3, draftId: 55 }));
   expect(fake.createDraft).toHaveBeenCalledWith('forward', undefined, 3);
 });
+
+test('snippet hidden when showSnippet is false', async () => {
+  useAppStore.setState((st) => ({ settings: { ...st.settings, showSnippet: false } }));
+  render(<MessageList />);
+  expect(await screen.findByText('Sujet 1')).toBeInTheDocument();
+  expect(screen.queryByText('Extrait 1')).not.toBeInTheDocument();
+});

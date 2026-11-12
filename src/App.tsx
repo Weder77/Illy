@@ -8,6 +8,7 @@ import { Reader } from './features/reader/Reader';
 import { saveOpenComposers } from './features/composer/Composer';
 import { SendBanner } from './features/outbox/SendBanner';
 import { Sidebar } from './features/sidebar/Sidebar';
+import { useAppearance } from './ui/appearance';
 import { TitleBar } from './ui/TitleBar';
 import styles from './App.module.css';
 
@@ -20,6 +21,8 @@ export default function App() {
   const passwordDialogFor = useAppStore((s) => s.passwordDialogFor);
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
   const outbox = useAppStore((s) => s.outbox);
+  const settings = useAppStore((s) => s.settings);
+  useAppearance(settings);
 
   useEffect(() => {
     // Écoute d'abord : un statut émis pendant le chargement ne doit pas être perdu.

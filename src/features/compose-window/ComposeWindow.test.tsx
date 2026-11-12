@@ -3,6 +3,8 @@ import { expect, test, vi } from 'vitest';
 
 const fake = vi.hoisted(() => ({
   listAccounts: vi.fn().mockResolvedValue([]),
+  getSettings: vi.fn().mockResolvedValue({ undoSendSeconds: 10, remoteImages: 'block', theme: 'light', accent: 'teal', textSize: 'normal', density: 'comfortable', showSnippet: true }),
+  onEvent: vi.fn().mockReturnValue(() => undefined),
   getDraft: vi.fn(),
   windowAction: vi.fn().mockResolvedValue(undefined),
   onWindowCloseRequested: vi.fn(),
@@ -33,6 +35,7 @@ test('closing the window saves the draft before it goes away', async () => {
   });
   render(<ComposeWindow draftId={12} />);
   await screen.findByDisplayValue('Coucou');
+  await waitFor(() => expect(document.documentElement.dataset.theme).toBe('light'));
   fireEvent.click(screen.getByRole('button', { name: 'Fermer (le brouillon est gardé)' }));
   expect(fake.windowAction).toHaveBeenCalledWith('close');
   // Tauri appelle le gestionnaire de fermeture : le brouillon est enregistré puis fermé côté cœur.

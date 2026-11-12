@@ -15,24 +15,24 @@
   border-radius: var(--r-panel);
   background: var(--panel);
   border: 1px solid var(--border-strong);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(47, 123, 255, 0.12);
+  box-shadow: 0 30px 80px var(--shadow), 0 0 0 1px rgba(var(--accent-rgb), 0.12);
   user-select: text;
 }
 .title {
   margin: 0 0 6px;
-  font-size: 20px;
+  font-size: 1.4286rem;
   font-weight: 700;
 }
 .lead {
   margin: 0 0 18px;
   color: var(--text-2);
-  font-size: 13.5px;
+  font-size: 0.9643rem;
 }
 .steps {
   display: flex;
   gap: 8px;
   margin-bottom: 22px;
-  font-size: 12px;
+  font-size: 0.8571rem;
   font-weight: 600;
   color: var(--text-2);
 }
@@ -48,7 +48,7 @@
   border: 1px solid var(--border-strong);
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: 0.7857rem;
 }
 .stepActive {
   color: var(--text);
@@ -67,7 +67,7 @@
   flex-direction: column;
   gap: 6px;
   margin-bottom: 14px;
-  font-size: 12.5px;
+  font-size: 0.8929rem;
   font-weight: 600;
   color: var(--text-soft);
 }
@@ -85,14 +85,14 @@
   background: var(--raised);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
 }
 .input:focus,
 .select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(47, 123, 255, 0.25);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.25);
 }
 .choice {
   display: flex;
@@ -103,20 +103,20 @@
   border-radius: var(--r-row);
   border: 1px solid var(--border-strong);
   cursor: pointer;
-  font-size: 13.5px;
+  font-size: 0.9643rem;
   font-weight: 600;
 }
 .choice:has(input:checked) {
   border-color: var(--accent);
-  background: rgba(47, 123, 255, 0.08);
+  background: rgba(var(--accent-rgb), 0.08);
 }
 .help {
   margin: 0 0 16px;
   padding: 14px 16px;
   border-radius: var(--r-row);
-  background: rgba(47, 123, 255, 0.07);
-  border: 1px solid rgba(47, 123, 255, 0.22);
-  font-size: 13px;
+  background: rgba(var(--accent-rgb), 0.07);
+  border: 1px solid rgba(var(--accent-rgb), 0.22);
+  font-size: 0.9286rem;
 }
 .help p {
   margin: 0 0 8px;
@@ -140,7 +140,7 @@
   border: 1px solid rgba(110, 162, 255, 0.4);
   background: transparent;
   color: var(--accent-link);
-  font-size: 12.5px;
+  font-size: 0.8929rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -151,13 +151,13 @@
   background: rgba(242, 95, 92, 0.1);
   border: 1px solid rgba(242, 95, 92, 0.3);
   color: #ffb4b2;
-  font-size: 13px;
+  font-size: 0.9286rem;
 }
 .errorDetail {
   display: block;
   margin-top: 6px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: 0.8571rem;
   word-break: break-word;
 }
 .progress {
@@ -171,7 +171,7 @@
   width: 18px;
   height: 18px;
   border-radius: var(--r-pill);
-  border: 2px solid rgba(47, 123, 255, 0.25);
+  border: 2px solid rgba(var(--accent-rgb), 0.25);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
@@ -191,7 +191,7 @@
   height: 40px;
   padding: 0 18px;
   border-radius: var(--r-pill);
-  font-size: 13.5px;
+  font-size: 0.9643rem;
   font-weight: 700;
   cursor: pointer;
 }
