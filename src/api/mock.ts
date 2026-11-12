@@ -279,7 +279,14 @@ export const mockApi: Api = {
   openLogsFolder: async () => delay(undefined),
   appInfo: async () => delay({ version: '0.3.0', logsDir: 'C:\\Users\\moi\\AppData\\Local\\Illy\\logs' }),
   checkUpdate: async () => delay(null, 400),
-  installUpdate: async () => delay(undefined),
+  downloadUpdate: async (onProgress) => {
+    for (const p of [0, 35, 70, 100]) {
+      onProgress(p);
+      await delay(undefined, 150);
+    }
+  },
+  applyUpdate: async () => delay(undefined),
+  closeComposeWindows: async () => delay(undefined),
   onWindowCloseRequested: () => () => undefined,
   onFileDrop: () => () => undefined,
 };

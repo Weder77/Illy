@@ -12,18 +12,12 @@ import { ForwardBlock, QuoteBlock, replaceSignature, SendShortcut, SignatureBloc
 import styles from './Composer.module.css';
 import { EditorToolbar } from './EditorToolbar';
 import { RecipientField } from './RecipientField';
+import { registerComposer } from './registry';
 import { useAutosave } from './useAutosave';
 
 const MB = 1024 * 1024;
 export const MAX_IMAGE_BYTES = 5 * MB;
 export const LARGE_ATTACHMENTS_BYTES = 25 * MB;
-
-/** Éditeurs ouverts dans cette fenêtre : la fermeture de la fenêtre principale les enregistre d'abord. */
-const openComposers = new Set<() => Promise<void>>();
-
-export async function saveOpenComposers(): Promise<void> {
-  await Promise.all([...openComposers].map((save) => save().catch(() => undefined)));
-}
 
 export function largeAttachmentsQuestion(total: number): string {
   return `Les pièces jointes font ${Math.round(total / MB)} Mo. Gmail et la plupart des serveurs refusent au-delà de 25 Mo. Envoyer quand même ?`;
@@ -160,10 +154,9 @@ function ComposerForm({ initial, variant, onClosed }: { initial: Draft } & Omit<
   useEffect(() => {
     if (variant !== 'inline') return;
     mounted.current = true;
-    const save = () => saveAndCloseRef.current();
-    openComposers.add(save);
+    const unregister = registerComposer(() => saveAndCloseRef.current());
     return () => {
-      openComposers.delete(save);
+      unregister();
       mounted.current = false;
       setTimeout(() => {
         if (!mounted.current) void saveAndCloseRef.current();

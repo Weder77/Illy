@@ -158,6 +158,7 @@ pub fn run() {
             commands::clear_cache,
             commands::open_logs_folder,
             commands::app_info,
+            commands::close_compose_windows,
         ])
         .run(tauri::generate_context!())
         .expect("échec du démarrage d'Illy");

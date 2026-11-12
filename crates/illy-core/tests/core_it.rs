@@ -335,7 +335,10 @@ async fn clear_cache_keeps_accounts_settings_and_drafts() {
     let before = e.core.storage_usage().unwrap();
     assert!(before.database > 0 && before.drafts > 0 && before.temporary > 0);
 
+    let folders_before: Vec<(i64, String)> = e.core.list_folders(id).unwrap().into_iter().map(|f| (f.id, f.imap_path)).collect();
     e.core.clear_cache().await.unwrap();
+    let folders_after: Vec<(i64, String)> = e.core.list_folders(id).unwrap().into_iter().map(|f| (f.id, f.imap_path)).collect();
+    assert_eq!(folders_after, folders_before, "folder ids stay the same: pending actions keep pointing at the right folder");
 
     assert_eq!(e.core.list_accounts().unwrap().len(), 1);
     assert_eq!(e.secrets.get(id).unwrap().as_deref(), Some(PASSWORD));

@@ -45,7 +45,14 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Illy ${{ github.ref_name }}'
           releaseBody: 'Installe le fichier « Illy_…_x64-setup.exe ». Les versions déjà installées proposent la mise à jour toutes seules.'
-          releaseDraft: false
+          # Brouillon d'abord : la release ne devient « latest » (celle que lisent les Illy installés)
+          # qu'une fois tous les fichiers envoyés, latest.json compris.
+          releaseDraft: true
           prerelease: false
           # Les mises à jour passent par l'installateur NSIS (installation par utilisateur, sans demande d'administrateur).
           updaterJsonPreferNsis: true
+      - name: Publier la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest --repo "$GITHUB_REPOSITORY"

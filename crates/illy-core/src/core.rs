@@ -151,6 +151,7 @@ impl Core {
             return Err(e);
         }
         self.manager.start(account.id);
+        self.events.emit(CoreEvent::AccountsChanged);
         Ok(account)
     }
 
@@ -177,11 +178,14 @@ impl Core {
                 self.events.emit(CoreEvent::OutboxChanged { draft_id: d.id, state: DraftState::Editing, send_at: None, error: None });
             }
         }
+        self.events.emit(CoreEvent::AccountsChanged);
         Ok(())
     }
 
     pub fn reorder_accounts(&self, ids: Vec<AccountId>) -> Result<Vec<Account>> {
-        self.store.reorder_accounts(&ids)
+        let list = self.store.reorder_accounts(&ids)?;
+        self.events.emit(CoreEvent::AccountsChanged);
+        Ok(list)
     }
 
     /// Nom affiché, couleur et signature (nettoyée comme un mail ; les images collées sont gardées).
@@ -200,7 +204,9 @@ impl Core {
         let signature_html = patch
             .signature_html
             .map(|h| crate::mime::sanitize_html(&h, &std::collections::HashMap::new()).html);
-        self.store.update_account(id, &AccountPatch { display_name, color: patch.color, signature_html })
+        let a = self.store.update_account(id, &AccountPatch { display_name, color: patch.color, signature_html })?;
+        self.events.emit(CoreEvent::AccountsChanged);
+        Ok(a)
     }
 
     /// Nouveaux serveurs (OVH, comptes manuels) : testés avec le mot de passe enregistré avant d'être gardés.
@@ -222,6 +228,7 @@ impl Core {
         test_smtp(&candidate.smtp, &acc.email, &password).await?;
         let updated = self.store.update_servers(id, &candidate.imap, &candidate.smtp)?;
         self.manager.restart(id);
+        self.events.emit(CoreEvent::AccountsChanged);
         Ok(updated)
     }
 
@@ -312,8 +319,14 @@ impl Core {
 
     /// « Vider le cache local » : les mails seront retéléchargés. Refusé pendant un envoi.
     pub async fn clear_cache(&self) -> Result<()> {
-        if !self.store.outbox()?.is_empty() {
+        let outbox = self.store.outbox()?;
+        if outbox.iter().any(|d| d.state != DraftState::Failed) {
             return Err(CoreError::InvalidInput("Attends la fin des envois en cours".into()));
+        }
+        if !outbox.is_empty() {
+            return Err(CoreError::InvalidInput(
+                "Un envoi a échoué : réessaie-le ou supprime son brouillon (bandeau du bas) avant de vider le cache.".into(),
+            ));
         }
         // Les numéros de mails seront réutilisés : un transfert ne doit plus pointer vers un mail du cache.
         let drafts: Vec<Draft> =

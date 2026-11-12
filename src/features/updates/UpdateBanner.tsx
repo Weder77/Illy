@@ -18,6 +18,14 @@ export function UpdateBanner() {
     return () => clearTimeout(t);
   }, [checkForUpdate]);
 
+  if (update.status === 'installing') {
+    return (
+      <div className={styles.banner} role="status">
+        <IconUpdate size={15} />
+        <span className={styles.text}>Installation de la mise à jour… Illy va redémarrer.</span>
+      </div>
+    );
+  }
   if (update.status === 'downloading') {
     return (
       <div className={styles.banner} role="status">

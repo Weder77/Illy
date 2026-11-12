@@ -14,6 +14,8 @@ pub enum CoreEvent {
     SyncProgress { account_id: AccountId, folder_id: FolderId, fetched: u32, total: u32 },
     OutboxChanged { draft_id: DraftId, state: DraftState, send_at: Option<i64>, error: Option<String> },
     SettingsChanged { key: String },
+    /// Liste, ordre, nom, couleur, signature ou serveurs des comptes modifiés.
+    AccountsChanged,
 }
 
 pub trait EventSink: Send + Sync + 'static {
@@ -51,6 +53,7 @@ mod tests {
     fn event_serialization() {
         let v = serde_json::to_value(CoreEvent::FolderChanged { account_id: 1, folder_id: 2 }).unwrap();
         assert_eq!(v, serde_json::json!({"type": "folder_changed", "accountId": 1, "folderId": 2}));
+        assert_eq!(serde_json::to_value(CoreEvent::AccountsChanged).unwrap(), serde_json::json!({"type": "accounts_changed"}));
     }
 
     #[test]

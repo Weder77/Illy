@@ -21,7 +21,7 @@ export function ComposeWindow({ draftId }: { draftId: number }) {
     // Thème, accent… changés dans la fenêtre principale : appliqués ici aussi.
     return api.onEvent((e) => {
       if (e.type === 'settings_changed') void loadSettings().catch(() => undefined);
-      if (e.type === 'account_status' || e.type === 'folders_changed') void loadAccounts().catch(() => undefined);
+      if (e.type === 'accounts_changed' || e.type === 'account_status') void loadAccounts().catch(() => undefined);
     });
   }, [loadAccounts, loadSettings]);
 

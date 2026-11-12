@@ -30,7 +30,9 @@ export function SignatureEditor({ value, onSave }: { value: string; onSave(html:
       Image.configure({ allowBase64: true, inline: true }),
       Placeholder.configure({ placeholder: 'Ta signature (nom, téléphone…)' }),
     ],
-    content: value,
+    // Le cœur range les images distantes en « data-blocked-src » : l'éditeur les montre telles quelles
+    // (c'est la signature de l'utilisateur), sinon TipTap les perdrait à la première frappe.
+    content: value.replace(/ data-blocked-src="/g, ' src="').replace(/ data-blocked-srcset="/g, ' srcset="'),
     editorProps: { attributes: { class: styles.signatureContent, 'aria-label': 'Signature' } },
     onUpdate: ({ editor: e }) => {
       pending.current = e.isEmpty ? '' : e.getHTML();

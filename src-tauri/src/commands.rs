@@ -270,6 +270,23 @@ pub fn app_info(app: AppHandle) -> R<AppInfo> {
     Ok(AppInfo { version: app.package_info().version.to_string(), logs_dir: logs_dir()?.to_string_lossy().to_string() })
 }
 
+/// Ferme les fenêtres « Nouveau mail » (chacune enregistre son brouillon en se fermant) et attend
+/// qu'elles soient parties, 15 s au plus : appelé juste avant d'installer une mise à jour.
+#[tauri::command]
+pub async fn close_compose_windows(app: AppHandle) -> R<()> {
+    let compose = |app: &AppHandle| app.webview_windows().into_iter().filter(|(l, _)| l.starts_with("compose-")).collect::<Vec<_>>();
+    for (_, w) in compose(&app) {
+        let _ = w.close();
+    }
+    for _ in 0..150 {
+        if compose(&app).is_empty() {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    Err(CoreError::InvalidInput("une fenêtre « Nouveau mail » ne se ferme pas : ferme-la puis réessaie".into()))
+}
+
 pub fn compose_label(draft_id: DraftId) -> String {
     format!("compose-{draft_id}")
 }

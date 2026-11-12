@@ -16,6 +16,8 @@ export function updateStatusText(u: UpdateState): string {
       return `Illy ${u.version} est disponible.`;
     case 'downloading':
       return u.progress == null ? 'Téléchargement…' : `Téléchargement… ${u.progress} %`;
+    case 'installing':
+      return 'Installation… Illy va redémarrer.';
     case 'error':
       return u.version ? `La mise à jour n'a pas pu être installée : ${u.message}` : `Impossible de vérifier les mises à jour : ${u.message}`;
   }
@@ -48,7 +50,7 @@ export function UpdatesSection() {
           type="button"
           className={styles.secondaryBtn}
           onClick={() => void checkForUpdate()}
-          disabled={update.status === 'checking' || update.status === 'downloading'}
+          disabled={update.status === 'checking' || update.status === 'downloading' || update.status === 'installing'}
         >
           Rechercher des mises à jour
         </button>

@@ -114,7 +114,7 @@ pub async fn run_ops(
                 let folder: FolderId = op.payload["folderId"].as_i64().unwrap_or(-1);
                 let uid = op.payload["uid"].as_u64().unwrap_or(0) as u32;
                 let seen = op.payload["seen"].as_bool().unwrap_or(true);
-                let path = match store.folder_path(folder) {
+                let path = match store.folder_path_of(account, folder) {
                     Ok(p) => p,
                     Err(CoreError::NotFound) => {
                         store.op_done(op.id)?;

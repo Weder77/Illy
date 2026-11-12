@@ -5,7 +5,7 @@ import { AddAccountWizard } from './features/accounts/AddAccountWizard';
 import { UpdatePasswordDialog } from './features/accounts/UpdatePasswordDialog';
 import { MessageList } from './features/message-list/MessageList';
 import { Reader } from './features/reader/Reader';
-import { saveOpenComposers } from './features/composer/Composer';
+import { saveOpenComposers } from './features/composer/registry';
 import { SendBanner } from './features/outbox/SendBanner';
 import { SettingsPanel } from './features/settings/SettingsPanel';
 import { Sidebar } from './features/sidebar/Sidebar';

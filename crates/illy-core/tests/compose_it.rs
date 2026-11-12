@@ -207,6 +207,24 @@ async fn smtp_try_later_is_retried() {
     assert_eq!(ops[0].attempts, 1);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn an_op_never_touches_a_folder_of_another_account() {
+    let e = env().await;
+    e.gm.append("INBOX", &simple_eml(1), false).await;
+    // Un second compte (ses dossiers ont d'autres numéros) : une action d'alice qui citerait l'un d'eux est ignorée.
+    let other = e.store.insert_account(&NewAccount { email: "zoe@ex.fr".into(), ..e.gm.new_account() }).unwrap();
+    e.store
+        .upsert_folders(other.id, &[illy_core::store::FolderInfo { imap_path: "INBOX".into(), display_name: "Boîte".into(), role: FolderRole::Inbox, hidden: false }])
+        .unwrap();
+    let foreign = e.store.list_folders(other.id).unwrap()[0].id;
+    e.store.enqueue_op(e.acc.id, OpKind::DeleteRemote, serde_json::json!({"folderId": foreign, "uid": 1})).unwrap();
+    e.store.enqueue_op(e.acc.id, OpKind::SetAnswered, serde_json::json!({"folderId": foreign, "uid": 1})).unwrap();
+    run(&e, PASSWORD).await;
+    assert_eq!(e.gm.count_in(USER, "INBOX").await, 1, "alice's mail untouched");
+    assert_eq!(e.gm.server_flags("INBOX").await, vec![(1, false, false)]);
+    assert_eq!(e.store.pending_ops_count(e.acc.id).unwrap(), 0);
+}
+
 mod core_level {
     use super::*;
     use illy_core::secrets::MemorySecretStore;

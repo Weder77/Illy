@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { api } from '../api';
+import { saveOpenComposers } from '../features/composer/registry';
 import type { Account, CoreEvent, Draft, DraftKind, Folder, ListScope, SettingKey, Settings } from '../api/types';
 import { defaultSettings, errorMessage } from '../api/types';
 
@@ -20,6 +21,7 @@ export type UpdateState =
   | { status: 'idle' | 'checking' | 'none' }
   | { status: 'available'; version: string }
   | { status: 'downloading'; version: string; progress: number | null }
+  | { status: 'installing'; version: string }
   | { status: 'error'; message: string; version?: string };
 
 export interface AppState {
@@ -113,7 +115,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   async checkForUpdate() {
     const current = get().update.status;
-    if (current === 'checking' || current === 'downloading') return;
+    if (current === 'checking' || current === 'downloading' || current === 'installing') return;
     set({ update: { status: 'checking' } });
     try {
       const found = await api.checkUpdate();
@@ -127,9 +129,19 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const u = get().update;
     if (u.status !== 'available' && !(u.status === 'error' && u.version)) return;
     const version = u.version!;
+    // L'installateur ferme Illy : pas pendant qu'un mail part (il repartirait en double).
+    if (get().outbox.some((d) => d.state === 'sending')) {
+      set({ update: { status: 'error', message: "un mail est en cours d'envoi, réessaie dans un instant", version } });
+      return;
+    }
     set({ update: { status: 'downloading', version, progress: 0 }, updateDismissed: false });
     try {
-      await api.installUpdate((progress) => set({ update: { status: 'downloading', version, progress } }));
+      await api.downloadUpdate((progress) => set({ update: { status: 'downloading', version, progress } }));
+      set({ update: { status: 'installing', version } });
+      // Tout ce qui est en cours de rédaction est enregistré avant que l'installateur ne ferme Illy.
+      await saveOpenComposers();
+      await api.closeComposeWindows();
+      await api.applyUpdate();
     } catch (e) {
       set({ update: { status: 'error', message: errorMessage(e), version } });
     }
@@ -140,6 +152,8 @@ export const useAppStore = create<AppState>()((set, get) => ({
   },
 
   async init() {
+    // Relu après « Vider le cache » ou une suppression de compte : les numéros de mails ont pu changer.
+    set((s) => ({ replyTarget: null, listVersion: s.listVersion + 1, messageVersion: s.messageVersion + 1 }));
     const extras = Promise.all([
       get().loadSettings().catch(() => undefined),
       (async () => set({ outbox: await api.listOutbox() }))().catch(() => undefined),
@@ -297,6 +311,11 @@ export const useAppStore = create<AppState>()((set, get) => ({
       case 'settings_changed':
         void get()
           .loadSettings()
+          .catch(() => undefined);
+        break;
+      case 'accounts_changed':
+        void get()
+          .loadAccounts()
           .catch(() => undefined);
         break;
     }

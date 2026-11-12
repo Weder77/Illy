@@ -17,7 +17,9 @@ const fake = vi.hoisted(() => ({
   openLogsFolder: vi.fn(),
   appInfo: vi.fn(),
   checkUpdate: vi.fn(),
-  installUpdate: vi.fn(),
+  downloadUpdate: vi.fn(),
+  applyUpdate: vi.fn(),
+  closeComposeWindows: vi.fn(),
   listAccounts: vi.fn(),
   listFolders: vi.fn(),
   getSettings: vi.fn(),
@@ -81,15 +83,31 @@ test('theme choice calls setSetting', async () => {
   await waitFor(() => expect(fake.setSetting).toHaveBeenCalledWith('show_snippet', false));
 });
 
-test('drag reorders accounts', async () => {
+test('dragging with the pointer reorders accounts (no HTML5 drag: Tauri keeps file drops on Windows)', async () => {
   render(<SettingsPanel />);
   const list = screen.getByRole('list', { name: 'Comptes' });
-  const [first, second] = within(list).getAllByRole('listitem');
-  fireEvent.dragStart(second);
-  fireEvent.dragOver(first);
-  fireEvent.drop(first);
+  const items = within(list).getAllByRole('listitem');
+  items.forEach((li, i) => {
+    li.getBoundingClientRect = () => ({ top: i * 40, bottom: i * 40 + 40, height: 40, left: 0, right: 200, width: 200, x: 0, y: i * 40, toJSON: () => ({}) }) as DOMRect;
+  });
+  expect(items[0]).not.toHaveAttribute('draggable', 'true');
+  fireEvent.pointerDown(items[1], { clientY: 60, pointerId: 1, button: 0 });
+  fireEvent.pointerMove(items[1], { clientY: 30, pointerId: 1 });
+  fireEvent.pointerMove(items[1], { clientY: 8, pointerId: 1 });
+  fireEvent.pointerUp(items[1], { clientY: 8, pointerId: 1 });
   await waitFor(() => expect(fake.reorderAccounts).toHaveBeenCalledWith([2, 1]));
   expect(useAppStore.getState().accounts.map((a) => a.id)).toEqual([2, 1]);
+});
+
+test('a simple click selects without reordering', async () => {
+  render(<SettingsPanel />);
+  const list = screen.getByRole('list', { name: 'Comptes' });
+  const second = within(list).getAllByRole('listitem')[1];
+  fireEvent.pointerDown(second, { clientY: 60, pointerId: 1, button: 0 });
+  fireEvent.pointerUp(second, { clientY: 61, pointerId: 1 });
+  fireEvent.click(within(second).getByRole('button'));
+  expect(fake.reorderAccounts).not.toHaveBeenCalled();
+  expect(screen.getByText('contact@mondomaine.fr', { selector: 'div' })).toBeInTheDocument();
 });
 
 test('Alt+arrow reorders accounts from the keyboard', async () => {
@@ -142,6 +160,22 @@ test('display name and color are saved', async () => {
   await waitFor(() => expect(fake.updateAccount).toHaveBeenCalledWith(1, { color: '#EC4899' }));
 });
 
+test('the display name is saved when the panel closes with Escape', async () => {
+  const user = userEvent.setup();
+  const { unmount } = render(<SettingsPanel />);
+  const name = screen.getByLabelText('Nom affiché');
+  await user.clear(name);
+  await user.type(name, 'Élodie');
+  unmount();
+  await waitFor(() => expect(fake.updateAccount).toHaveBeenCalledWith(1, { displayName: 'Élodie' }));
+});
+
+test('a signature with a remote image keeps it', async () => {
+  useAppStore.setState({ accounts: [{ ...gmail, signatureHtml: '<p>Moi</p><p><img data-blocked-src="https://ex.fr/logo.png" alt="logo"></p>' }, ovh] });
+  render(<SettingsPanel />);
+  await waitFor(() => expect(screen.getByTestId('signature-editor').querySelector('img[alt="logo"]')?.getAttribute('src')).toBe('https://ex.fr/logo.png'));
+});
+
 test('remove sender from allowlist', async () => {
   useAppStore.setState({ settingsSection: 'reading' });
   render(<SettingsPanel />);
@@ -167,10 +201,12 @@ test('clear cache refusal is shown', async () => {
 test('updates section checks and offers to install', async () => {
   useAppStore.setState({ settingsSection: 'updates' });
   fake.checkUpdate.mockResolvedValue({ version: '0.3.1', notes: null });
-  fake.installUpdate.mockResolvedValue(undefined);
+  fake.downloadUpdate.mockResolvedValue(undefined);
+  fake.closeComposeWindows.mockResolvedValue(undefined);
+  fake.applyUpdate.mockResolvedValue(undefined);
   render(<SettingsPanel />);
   fireEvent.click(screen.getByRole('button', { name: 'Rechercher des mises à jour' }));
   expect(await screen.findByText('Illy 0.3.1 est disponible.')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Installer' }));
-  await waitFor(() => expect(fake.installUpdate).toHaveBeenCalled());
+  await waitFor(() => expect(fake.applyUpdate).toHaveBeenCalled());
 });

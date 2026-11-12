@@ -21,15 +21,16 @@ pub struct FolderSyncState {
 }
 
 impl Store {
-    /// Vide le cache des mails (dossiers, mails, parties, actions liées à un mail) et compacte la base.
-    /// Garde comptes, réglages, contacts, expéditeurs autorisés et brouillons.
+    /// Vide le cache des mails (mails et parties) et compacte la base. Les dossiers restent, avec leurs
+    /// numéros (les actions en attente les désignent), mais repartent d'une synchro complète.
+    /// Garde comptes, réglages, contacts, expéditeurs autorisés, brouillons et actions en attente.
     pub fn clear_mail_cache(&self) -> Result<()> {
         self.with(|c| {
             c.execute_batch(
                 "BEGIN; \
                  UPDATE drafts SET source_message_id = NULL; \
-                 DELETE FROM ops WHERE kind IN ('set_seen', 'set_answered'); \
-                 DELETE FROM folders; \
+                 DELETE FROM messages; \
+                 UPDATE folders SET uidvalidity = NULL, uidnext = NULL, highest_modseq = NULL, last_sync_at = NULL; \
                  COMMIT;",
             )?;
             c.execute_batch("VACUUM;")?;
@@ -126,6 +127,16 @@ impl Store {
         self.with(|c| {
             use rusqlite::OptionalExtension;
             c.query_row("SELECT account_id FROM folders WHERE id = ?1", [id], |r| r.get(0))
+                .optional()?
+                .ok_or(crate::CoreError::NotFound)
+        })
+    }
+
+    /// Chemin d'un dossier **de ce compte** (une action ne doit jamais viser le dossier d'un autre compte).
+    pub fn folder_path_of(&self, account: AccountId, id: FolderId) -> Result<String> {
+        self.with(|c| {
+            use rusqlite::OptionalExtension;
+            c.query_row("SELECT imap_path FROM folders WHERE id = ?1 AND account_id = ?2", rusqlite::params![id, account], |r| r.get(0))
                 .optional()?
                 .ok_or(crate::CoreError::NotFound)
         })

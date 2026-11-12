@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import { api } from '../../api';
 import { errorMessage, type Account } from '../../api/types';
 import { useAppStore } from '../../state/store';
@@ -19,6 +19,11 @@ export function AccountsSection({ onError }: { onError(message: string): void })
   const setShowWizard = useAppStore((s) => s.setShowWizard);
   const [selectedId, setSelectedId] = useState<number | null>(accounts[0]?.id ?? null);
   const [dragging, setDragging] = useState<number | null>(null);
+  // Glisser au pointeur : le glisser-déposer HTML5 n'arrive pas jusqu'à la page sous Windows
+  // (Tauri garde le dépôt de fichiers pour les pièces jointes).
+  const drag = useRef<{ id: number; startY: number; active: boolean; over: number } | null>(null);
+  const items = useRef<(HTMLLIElement | null)[]>([]);
+  const suppressClick = useRef(false);
   const selected = accounts.find((a) => a.id === selectedId) ?? accounts[0];
 
   const reorder = (ids: number[]) => {
@@ -34,12 +39,37 @@ export function AccountsSection({ onError }: { onError(message: string): void })
       });
   };
 
-  const onDrop = (e: DragEvent, target: number) => {
-    e.preventDefault();
-    if (dragging == null) return;
-    const ids = accounts.map((a) => a.id);
-    reorder(moved(ids, ids.indexOf(dragging), target));
+  const indexAt = (y: number) => {
+    const rects = items.current.map((el) => el?.getBoundingClientRect());
+    const i = rects.findIndex((r) => r && y < r.top + r.height / 2);
+    return i < 0 ? accounts.length - 1 : i;
+  };
+
+  const onPointerDown = (e: PointerEvent, id: number) => {
+    if (e.button !== 0) return;
+    drag.current = { id, startY: e.clientY, active: false, over: accounts.findIndex((a) => a.id === id) };
+    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    if (!d.active && Math.abs(e.clientY - d.startY) < 4) return;
+    d.active = true;
+    d.over = indexAt(e.clientY);
+    setDragging(d.id);
+  };
+
+  const onPointerUp = () => {
+    const d = drag.current;
+    drag.current = null;
     setDragging(null);
+    if (!d?.active) return;
+    // Le clic qui suit la fin du glisser ne doit pas sélectionner ; s'il ne vient pas, on oublie.
+    suppressClick.current = true;
+    setTimeout(() => (suppressClick.current = false), 0);
+    const ids = accounts.map((a) => a.id);
+    reorder(moved(ids, ids.indexOf(d.id), d.over));
   };
 
   const onKey = (e: KeyboardEvent, index: number) => {
@@ -58,20 +88,28 @@ export function AccountsSection({ onError }: { onError(message: string): void })
             {accounts.map((a: Account, i) => (
               <li
                 key={a.id}
-                draggable
-                className={[styles.accountItem, a.id === selected?.id ? styles.accountItemOn : '', dragging === a.id ? styles.dragging : ''].join(' ')}
-                onDragStart={(e) => {
-                  setDragging(a.id);
-                  e.dataTransfer?.setData('text/plain', String(a.id));
+                ref={(el) => {
+                  items.current[i] = el;
                 }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => onDrop(e, i)}
-                onDragEnd={() => setDragging(null)}
+                className={[styles.accountItem, a.id === selected?.id ? styles.accountItemOn : '', dragging === a.id ? styles.dragging : ''].join(' ')}
+                onPointerDown={(e) => onPointerDown(e, a.id)}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={() => {
+                  drag.current = null;
+                  setDragging(null);
+                }}
               >
                 <button
                   type="button"
                   className={styles.accountBtn}
-                  onClick={() => setSelectedId(a.id)}
+                  onClick={() => {
+                    if (suppressClick.current) {
+                      suppressClick.current = false;
+                      return;
+                    }
+                    setSelectedId(a.id);
+                  }}
                   onKeyDown={(e) => onKey(e, i)}
                   title="Glisse pour changer l'ordre (ou Alt + ↑ / ↓)"
                 >

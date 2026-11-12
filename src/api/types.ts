@@ -199,7 +199,8 @@ export type CoreEvent =
   | { type: 'message_updated'; messageId: number }
   | { type: 'sync_progress'; accountId: number; folderId: number; fetched: number; total: number }
   | { type: 'outbox_changed'; draftId: number; state: DraftState; sendAt: number | null; error: string | null }
-  | { type: 'settings_changed'; key: string };
+  | { type: 'settings_changed'; key: string }
+  | { type: 'accounts_changed' };
 
 export interface ApiError {
   kind: string;

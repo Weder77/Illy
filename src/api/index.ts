@@ -75,8 +75,12 @@ export interface Api {
   appInfo(): Promise<AppInfo>;
   // Mises à jour (rien ne s'installe sans un appel explicite à installUpdate)
   checkUpdate(): Promise<UpdateInfo | null>;
-  /** Télécharge (progression en %, ou null si la taille est inconnue), installe, puis relance Illy. */
-  installUpdate(onProgress: (percent: number | null) => void): Promise<void>;
+  /** Télécharge la mise à jour trouvée (progression en %, ou null si la taille est inconnue) et vérifie sa signature. */
+  downloadUpdate(onProgress: (percent: number | null) => void): Promise<void>;
+  /** Lance l'installateur (il ferme Illy puis le relance). À n'appeler qu'une fois tout enregistré. */
+  applyUpdate(): Promise<void>;
+  /** Ferme les fenêtres « Nouveau mail » (chacune enregistre son brouillon) et attend qu'elles aient fini. */
+  closeComposeWindows(): Promise<void>;
   /** Fichiers déposés sur la fenêtre : chemins et point de dépôt (pixels CSS de la fenêtre). */
   onFileDrop(cb: (paths: string[], at: { x: number; y: number }) => void): () => void;
 }

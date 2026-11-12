@@ -63,12 +63,12 @@ export const tauriApi: Api = {
     pendingUpdate = await check();
     return pendingUpdate ? { version: pendingUpdate.version, notes: pendingUpdate.body ?? null } : null;
   },
-  installUpdate: async (onProgress) => {
-    const update = pendingUpdate ?? (await check());
+  downloadUpdate: async (onProgress) => {
+    const update = pendingUpdate ?? (pendingUpdate = await check());
     if (!update) throw new Error('aucune mise à jour disponible');
     let total = 0;
     let done = 0;
-    await update.downloadAndInstall((e) => {
+    await update.download((e) => {
       if (e.event === 'Started') {
         total = e.data.contentLength ?? 0;
         onProgress(total ? 0 : null);
@@ -79,8 +79,14 @@ export const tauriApi: Api = {
         onProgress(100);
       }
     });
+  },
+  applyUpdate: async () => {
+    if (!pendingUpdate) throw new Error('aucune mise à jour téléchargée');
+    // Sous Windows, l'installateur ferme Illy et le relance lui-même ; ailleurs, on relance.
+    await pendingUpdate.install();
     await relaunch();
   },
+  closeComposeWindows: () => invoke('close_compose_windows'),
   onWindowCloseRequested: (cb) =>
     subscription(
       getCurrentWindow().onCloseRequested(async (event) => {

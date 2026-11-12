@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../api';
 import { ACCOUNT_COLORS, errorMessage, type Account, type AccountPatch, type ServerConfig, type TlsMode } from '../../api/types';
 import { useAppStore } from '../../state/store';
@@ -37,6 +37,21 @@ export function AccountDetails({ account, onError }: { account: Account; onError
   const [smtp, setSmtp] = useState(account.smtp);
   const [serverState, setServerState] = useState<{ kind: 'idle' | 'testing' | 'ok' } | { kind: 'error'; message: string }>({ kind: 'idle' });
   const fixedServers = account.provider === 'gmail' || account.provider === 'yahoo';
+  // Le nom est enregistré en quittant le champ… ou en fermant le panneau (Échap, clic à côté).
+  const nameRef = useRef(name);
+  nameRef.current = name;
+  useEffect(
+    () => () => {
+      const n = nameRef.current.trim();
+      if (n && n !== account.displayName) {
+        void api
+          .updateAccount(account.id, { displayName: n })
+          .then((a) => useAppStore.setState((s) => ({ accounts: s.accounts.map((x) => (x.id === a.id ? a : x)) })))
+          .catch(() => undefined);
+      }
+    },
+    [account.id, account.displayName],
+  );
 
   const patch = (p: AccountPatch) => {
     api

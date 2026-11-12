@@ -231,7 +231,11 @@
   background: var(--raised);
 }
 .dragging {
-  opacity: 0.5;
+  opacity: 0.55;
+  outline: 1px dashed rgba(var(--accent-rgb), 0.6);
+}
+.accountItem {
+  touch-action: none;
 }
 .accountBtn {
   display: flex;
