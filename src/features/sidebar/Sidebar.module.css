@@ -1,0 +1,243 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 12px 10px;
+}
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px 0 30px;
+  border: 0;
+  border-radius: var(--r-row);
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.item:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.item .icon {
+  display: flex;
+  color: var(--text-2);
+}
+.top {
+  height: 44px;
+  padding-left: 10px;
+  font-weight: 600;
+  color: var(--text);
+}
+.top .icon {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  justify-content: center;
+  align-items: center;
+}
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pill {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.active,
+.active:hover {
+  background: var(--accent-strong);
+  color: #fff;
+  font-weight: 600;
+  border-radius: var(--r-pill);
+  box-shadow: var(--accent-glow);
+}
+.active .icon {
+  color: #fff;
+}
+.active .pill {
+  background: #fff;
+  color: var(--accent-strong);
+}
+.sep {
+  height: 1px;
+  background: var(--border);
+  margin: 10px 6px 4px;
+}
+.section {
+  padding: 10px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.account + .account {
+  margin-top: 8px;
+}
+.accountHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+.toggle:hover {
+  background: var(--hover);
+}
+.chevron {
+  display: flex;
+  color: var(--text-2);
+  transition: transform 120ms ease;
+  transform: rotate(90deg);
+}
+.collapsed .chevron {
+  transform: rotate(0deg);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: var(--r-pill);
+}
+.warnBtn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: rgba(245, 165, 36, 0.14);
+  color: var(--warn);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.statusDot {
+  width: 8px;
+  height: 8px;
+  margin-right: 10px;
+  border-radius: var(--r-pill);
+  background: var(--text-2);
+}
+.syncing {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+.problem {
+  margin: 4px 6px 8px 24px;
+  padding: 10px 12px;
+  border-radius: var(--r-row);
+  background: rgba(245, 165, 36, 0.08);
+  border: 1px solid rgba(245, 165, 36, 0.3);
+  font-size: 12.5px;
+}
+.problem strong {
+  display: block;
+  color: var(--warn);
+  margin-bottom: 4px;
+}
+.problem p {
+  margin: 0 0 8px;
+  color: var(--text-2);
+  word-break: break-word;
+  user-select: text;
+}
+.problemBtn {
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+  color: #1a1306;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+}
+.compose {
+  flex: 1;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--accent-strong);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: var(--accent-glow);
+  cursor: pointer;
+}
+.compose:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  cursor: default;
+}
+.gear {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-soft);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.gear:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}

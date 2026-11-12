@@ -12,6 +12,8 @@ export interface AppState {
   folders: Record<number, Folder[]>;
   selection: Selection;
   showWizard: boolean;
+  /** Compte dont on met à jour le mot de passe (boîte de dialogue ouverte). */
+  passwordDialogFor: number | null;
   /** Incrémenté quand la liste affichée doit être relue. */
   listVersion: number;
   /** Incrémenté quand un mail change (relecture du mail ouvert). */
@@ -22,6 +24,7 @@ export interface AppState {
   selectScope(scope: ListScope): void;
   selectMessage(id: number | null): void;
   setShowWizard(show: boolean): void;
+  setPasswordDialogFor(accountId: number | null): void;
   applyEvent(e: CoreEvent): void;
 }
 
@@ -32,6 +35,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
   folders: {},
   selection: { scope: unified, messageId: null },
   showWizard: false,
+  passwordDialogFor: null,
   listVersion: 0,
   messageVersion: 0,
 
@@ -67,6 +71,10 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
   setShowWizard(show) {
     set({ showWizard: show });
+  },
+
+  setPasswordDialogFor(accountId) {
+    set({ passwordDialogFor: accountId });
   },
 
   applyEvent(e) {
