@@ -69,8 +69,8 @@ export function Sidebar() {
   const folders = useAppStore((s) => s.folders);
   const scope = useAppStore((s) => s.selection.scope);
   const selectScope = useAppStore((s) => s.selectScope);
-  const setShowWizard = useAppStore((s) => s.setShowWizard);
   const composeNew = useAppStore((s) => s.composeNew);
+  const openSettings = useAppStore((s) => s.openSettings);
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
   const [collapsed, setCollapsed] = useState<number[]>(readCollapsed);
   const [problemFor, setProblemFor] = useState<number | null>(null);
@@ -165,7 +165,7 @@ export function Sidebar() {
           <IconPen size={16} />
           Nouveau mail
         </button>
-        <button className={styles.gear} aria-label="Ajouter un compte" title="Ajouter un compte" onClick={() => setShowWizard(true)}>
+        <button className={styles.gear} aria-label="Paramètres" title="Paramètres" onClick={() => openSettings()}>
           <IconGear size={17} />
         </button>
       </div>

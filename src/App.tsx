@@ -7,6 +7,7 @@ import { MessageList } from './features/message-list/MessageList';
 import { Reader } from './features/reader/Reader';
 import { saveOpenComposers } from './features/composer/Composer';
 import { SendBanner } from './features/outbox/SendBanner';
+import { SettingsPanel } from './features/settings/SettingsPanel';
 import { Sidebar } from './features/sidebar/Sidebar';
 import { useAppearance } from './ui/appearance';
 import { TitleBar } from './ui/TitleBar';
@@ -21,6 +22,7 @@ export default function App() {
   const passwordDialogFor = useAppStore((s) => s.passwordDialogFor);
   const setPasswordDialogFor = useAppStore((s) => s.setPasswordDialogFor);
   const outbox = useAppStore((s) => s.outbox);
+  const showSettings = useAppStore((s) => s.showSettings);
   const settings = useAppStore((s) => s.settings);
   useAppearance(settings);
 
@@ -51,6 +53,7 @@ export default function App() {
         </section>
       </main>
       <SendBanner />
+      {showSettings && <SettingsPanel />}
       {showWizard && <AddAccountWizard onClose={() => setShowWizard(false)} />}
       {passwordDialogFor != null && (
         <UpdatePasswordDialog accountId={passwordDialogFor} onClose={() => setPasswordDialogFor(null)} />

@@ -1,6 +1,8 @@
 import type {
   Account,
+  AccountPatch,
   Address,
+  AppInfo,
   CoreEvent,
   Draft,
   DraftInput,
@@ -12,8 +14,11 @@ import type {
   NewAccount,
   ProviderGuess,
   SendTicket,
+  ServerConfig,
   SettingKey,
   Settings,
+  StorageUsage,
+  UpdateInfo,
 } from './types';
 import { tauriApi } from './tauri';
 import { mockApi } from './mock';
@@ -57,6 +62,21 @@ export interface Api {
   openComposeWindow(draftId: number): Promise<void>;
   /** Fenêtre « Nouveau mail » : appelé avant sa fermeture (le brouillon doit être enregistré). */
   onWindowCloseRequested(cb: () => Promise<void>): () => void;
+  // Paramètres
+  reorderAccounts(ids: number[]): Promise<Account[]>;
+  updateAccount(accountId: number, patch: AccountPatch): Promise<Account>;
+  updateServers(accountId: number, imap: ServerConfig, smtp: ServerConfig): Promise<Account>;
+  removeAccount(accountId: number): Promise<void>;
+  listImageAllowlist(): Promise<string[]>;
+  removeFromImageAllowlist(sender: string): Promise<void>;
+  storageUsage(): Promise<StorageUsage>;
+  clearCache(): Promise<void>;
+  openLogsFolder(): Promise<void>;
+  appInfo(): Promise<AppInfo>;
+  // Mises à jour (rien ne s'installe sans un appel explicite à installUpdate)
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** Télécharge (progression en %, ou null si la taille est inconnue), installe, puis relance Illy. */
+  installUpdate(onProgress: (percent: number | null) => void): Promise<void>;
   /** Fichiers déposés sur la fenêtre : chemins et point de dépôt (pixels CSS de la fenêtre). */
   onFileDrop(cb: (paths: string[], at: { x: number; y: number }) => void): () => void;
 }

@@ -21,7 +21,7 @@ export type AccountStatus = 'ok' | 'syncing' | 'auth_error' | 'offline' | 'error
 
 export interface Account extends NewAccount {
   id: number;
-  /** Signature HTML du compte (réglable au lot B ; absente = aucune). */
+  /** Signature HTML du compte (nettoyée). */
   signatureHtml?: string;
   color: string;
   sortOrder: number;
@@ -166,6 +166,31 @@ export const defaultSettings: Settings = {
   density: 'comfortable',
   showSnippet: true,
 };
+
+export interface AccountPatch {
+  displayName?: string;
+  color?: string;
+  signatureHtml?: string;
+}
+
+export interface StorageUsage {
+  database: number;
+  drafts: number;
+  temporary: number;
+}
+
+export interface AppInfo {
+  version: string;
+  logsDir: string;
+}
+
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
+
+/** Palette des comptes (même ordre que le cœur). */
+export const ACCOUNT_COLORS = ['#8B5CF6', '#14B8A6', '#EC4899', '#F59E0B', '#22C55E', '#38BDF8'];
 
 export type CoreEvent =
   | { type: 'account_status'; accountId: number; status: AccountStatus; error: string | null }

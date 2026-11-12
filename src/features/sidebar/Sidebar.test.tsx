@@ -61,10 +61,10 @@ test('auth_error shows warning card and opens password dialog', () => {
   expect(useAppStore.getState().passwordDialogFor).toBe(2);
 });
 
-test('gear opens the add-account wizard', () => {
+test('gear opens the settings panel', () => {
   render(<Sidebar />);
-  fireEvent.click(screen.getByRole('button', { name: 'Ajouter un compte' }));
-  expect(useAppStore.getState().showWizard).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Paramètres' }));
+  expect(useAppStore.getState().showSettings).toBe(true);
 });
 
 test('collapsing an account hides its folders', () => {

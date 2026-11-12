@@ -99,6 +99,7 @@ const drafts = new Map<number, Draft>();
 const sendTimers = new Map<number, ReturnType<typeof setTimeout>>();
 let nextDraftId = 1;
 let settings: Settings = { ...defaultSettings };
+const allowlist = new Set(['newsletter@exemple.fr', 'info@banque-horizon.example']);
 const contacts: Address[] = senders.map((s) => ({ name: s[0], email: s[1] }));
 const fold = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -240,6 +241,45 @@ export const mockApi: Api = {
   openComposeWindow: async (draftId) => {
     window.open(`${location.pathname}#compose/${draftId}`, `compose-${draftId}`, 'width=760,height=640');
   },
+  reorderAccounts: async (ids) => {
+    const byId = new Map(accounts.map((a) => [a.id, a]));
+    const next = ids.map((id, i) => ({ ...byId.get(id)!, sortOrder: i }));
+    accounts.splice(0, accounts.length, ...next);
+    return delay([...accounts]);
+  },
+  updateAccount: async (accountId, patch) => {
+    const i = accounts.findIndex((a) => a.id === accountId);
+    if (patch.displayName !== undefined && !patch.displayName.trim()) throw { kind: 'invalid_input', message: 'Le nom affiché ne peut pas être vide.' };
+    accounts[i] = { ...accounts[i], ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) };
+    return delay(accounts[i]);
+  },
+  updateServers: async (accountId, imap, smtp) => {
+    if (!imap.host.includes('.')) throw { kind: 'network', message: `serveur injoignable : ${imap.host}` };
+    const i = accounts.findIndex((a) => a.id === accountId);
+    accounts[i] = { ...accounts[i], imap, smtp };
+    return delay(accounts[i], 600);
+  },
+  removeAccount: async (accountId) => {
+    const i = accounts.findIndex((a) => a.id === accountId);
+    if (i >= 0) accounts.splice(i, 1);
+    return delay(undefined);
+  },
+  listImageAllowlist: async () => delay([...allowlist].sort()),
+  removeFromImageAllowlist: async (sender) => {
+    allowlist.delete(sender);
+    return delay(undefined);
+  },
+  storageUsage: async () => delay({ database: 48_200_000, drafts: 1_843_200, temporary: 253_952 }),
+  clearCache: async () => {
+    if ([...drafts.values()].some((d) => d.state === 'queued' || d.state === 'sending' || d.state === 'failed')) {
+      throw { kind: 'invalid_input', message: 'Attends la fin des envois en cours' };
+    }
+    return delay(undefined, 800);
+  },
+  openLogsFolder: async () => delay(undefined),
+  appInfo: async () => delay({ version: '0.3.0', logsDir: 'C:\\Users\\moi\\AppData\\Local\\Illy\\logs' }),
+  checkUpdate: async () => delay(null, 400),
+  installUpdate: async () => delay(undefined),
   onWindowCloseRequested: () => () => undefined,
   onFileDrop: () => () => undefined,
 };

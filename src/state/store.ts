@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { api } from '../api';
-import type { Account, CoreEvent, Draft, DraftKind, Folder, ListScope, Settings } from '../api/types';
-import { defaultSettings } from '../api/types';
+import type { Account, CoreEvent, Draft, DraftKind, Folder, ListScope, SettingKey, Settings } from '../api/types';
+import { defaultSettings, errorMessage } from '../api/types';
 
 export interface Selection {
   scope: ListScope;
@@ -13,6 +13,14 @@ export interface ReplyTarget {
   messageId: number;
   draftId: number;
 }
+
+export type SettingsSection = 'accounts' | 'appearance' | 'reading' | 'updates' | 'about';
+
+export type UpdateState =
+  | { status: 'idle' | 'checking' | 'none' }
+  | { status: 'available'; version: string }
+  | { status: 'downloading'; version: string; progress: number | null }
+  | { status: 'error'; message: string; version?: string };
 
 export interface AppState {
   accounts: Account[];
@@ -33,7 +41,18 @@ export interface AppState {
   recentlySent: number[];
   settings: Settings;
   replyTarget: ReplyTarget | null;
+  showSettings: boolean;
+  settingsSection: SettingsSection;
+  update: UpdateState;
+  /** « Plus tard » : le bandeau reste masqué jusqu'au prochain démarrage. */
+  updateDismissed: boolean;
   init(): Promise<void>;
+  openSettings(section?: SettingsSection): void;
+  closeSettings(): void;
+  setSetting(key: SettingKey, value: unknown): Promise<void>;
+  checkForUpdate(): Promise<void>;
+  installUpdate(): Promise<void>;
+  dismissUpdate(): void;
   loadSettings(): Promise<void>;
   openReply(kind: Exclude<DraftKind, 'new'>): Promise<void>;
   /** « Nouveau mail » : compte de la boîte affichée (sinon le premier), dans une fenêtre. */
@@ -75,6 +94,50 @@ export const useAppStore = create<AppState>()((set, get) => ({
   recentlySent: [],
   settings: defaultSettings,
   replyTarget: null,
+  showSettings: false,
+  settingsSection: 'accounts',
+  update: { status: 'idle' },
+  updateDismissed: false,
+
+  openSettings(section) {
+    set((s) => ({ showSettings: true, settingsSection: section ?? s.settingsSection }));
+  },
+
+  closeSettings() {
+    set({ showSettings: false });
+  },
+
+  async setSetting(key, value) {
+    set({ settings: await api.setSetting(key, value) });
+  },
+
+  async checkForUpdate() {
+    const current = get().update.status;
+    if (current === 'checking' || current === 'downloading') return;
+    set({ update: { status: 'checking' } });
+    try {
+      const found = await api.checkUpdate();
+      set({ update: found ? { status: 'available', version: found.version } : { status: 'none' } });
+    } catch (e) {
+      set({ update: { status: 'error', message: errorMessage(e) } });
+    }
+  },
+
+  async installUpdate() {
+    const u = get().update;
+    if (u.status !== 'available' && !(u.status === 'error' && u.version)) return;
+    const version = u.version!;
+    set({ update: { status: 'downloading', version, progress: 0 }, updateDismissed: false });
+    try {
+      await api.installUpdate((progress) => set({ update: { status: 'downloading', version, progress } }));
+    } catch (e) {
+      set({ update: { status: 'error', message: errorMessage(e), version } });
+    }
+  },
+
+  dismissUpdate() {
+    set({ updateDismissed: true });
+  },
 
   async init() {
     const extras = Promise.all([

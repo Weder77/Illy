@@ -2,8 +2,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { relaunch } from '@tauri-apps/plugin-process';
+import { check, type Update } from '@tauri-apps/plugin-updater';
 import type { Api } from './index';
 import type { CoreEvent } from './types';
+
+/** Dernière mise à jour trouvée (l'objet du module sert ensuite à l'installer). */
+let pendingUpdate: Update | null = null;
 
 export const tauriApi: Api = {
   detectProvider: (email) => invoke('detect_provider', { email }),
@@ -44,6 +49,38 @@ export const tauriApi: Api = {
   getSettings: () => invoke('get_settings'),
   setSetting: (key, value) => invoke('set_setting', { key, value }),
   openComposeWindow: (draftId) => invoke('open_compose_window', { draftId }),
+  reorderAccounts: (ids) => invoke('reorder_accounts', { ids }),
+  updateAccount: (accountId, patch) => invoke('update_account', { accountId, patch }),
+  updateServers: (accountId, imap, smtp) => invoke('update_servers', { accountId, imap, smtp }),
+  removeAccount: (accountId) => invoke('remove_account', { accountId }),
+  listImageAllowlist: () => invoke('list_image_allowlist'),
+  removeFromImageAllowlist: (sender) => invoke('remove_from_image_allowlist', { sender }),
+  storageUsage: () => invoke('storage_usage'),
+  clearCache: () => invoke('clear_cache'),
+  openLogsFolder: () => invoke('open_logs_folder'),
+  appInfo: () => invoke('app_info'),
+  checkUpdate: async () => {
+    pendingUpdate = await check();
+    return pendingUpdate ? { version: pendingUpdate.version, notes: pendingUpdate.body ?? null } : null;
+  },
+  installUpdate: async (onProgress) => {
+    const update = pendingUpdate ?? (await check());
+    if (!update) throw new Error('aucune mise à jour disponible');
+    let total = 0;
+    let done = 0;
+    await update.downloadAndInstall((e) => {
+      if (e.event === 'Started') {
+        total = e.data.contentLength ?? 0;
+        onProgress(total ? 0 : null);
+      } else if (e.event === 'Progress') {
+        done += e.data.chunkLength;
+        onProgress(total ? Math.min(100, Math.round((done / total) * 100)) : null);
+      } else {
+        onProgress(100);
+      }
+    });
+    await relaunch();
+  },
   onWindowCloseRequested: (cb) =>
     subscription(
       getCurrentWindow().onCloseRequested(async (event) => {
