@@ -124,6 +124,11 @@ impl Store {
         })
     }
 
+    /// Premier dossier d'un rôle donné (Envoyés, Brouillons…) : (id, chemin IMAP).
+    pub fn folder_by_role(&self, account: AccountId, role: FolderRole) -> Result<Option<(FolderId, String)>> {
+        Ok(self.syncable_folders(account)?.into_iter().find(|f| f.2 == role).map(|f| (f.0, f.1)))
+    }
+
     /// Dossiers non masqués : (id, chemin IMAP, rôle), boîte de réception en premier.
     pub fn syncable_folders(&self, account: AccountId) -> Result<Vec<(FolderId, String, FolderRole)>> {
         let mut out = self.with(|c| {

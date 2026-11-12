@@ -213,3 +213,20 @@ pub async fn wait_until(timeout_secs: u64, mut f: impl FnMut() -> bool) -> bool 
     }
     f()
 }
+
+impl GreenMail {
+    pub async fn create_folder(&self, name: &str) {
+        let mut s = self.session().await;
+        let _ = s.create(name).await;
+        let _ = s.logout().await;
+    }
+
+    /// Nombre de mails d'un dossier d'un utilisateur.
+    pub async fn count_in(&self, user: &str, folder: &str) -> usize {
+        let mut s = self.session_as(user).await;
+        match illy_core::imap::select(&mut s, folder, false).await {
+            Ok(_) => illy_core::imap::search_all_uids(&mut s).await.unwrap().len(),
+            Err(_) => 0,
+        }
+    }
+}

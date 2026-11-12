@@ -356,7 +356,7 @@ async fn connected(
 ) -> Result<Exit> {
     // Actions faites hors ligne : envoyées avant toute relecture des drapeaux du serveur.
     ctx.store.ops_due_now(ctx.account)?;
-    timed(run_due_ops(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &ctx.cfg)).await?;
+    timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
 
     // Dossiers.
     let folders = timed(list_folders(&mut s)).await?;
@@ -389,7 +389,7 @@ async fn connected(
         // 1. Demandes de l'utilisateur.
         drain_requests(ctx, st, rx, &mut s, &caps, None).await?;
         // 2. Actions en attente.
-        timed(run_due_ops(&mut s, &ctx.store, ctx.events.as_ref(), ctx.account, &ctx.cfg)).await?;
+        timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
         // 3. Signaux et minuteries.
         while let Ok(msg) = idle_rx.try_recv() {
             match msg {

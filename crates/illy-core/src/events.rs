@@ -1,6 +1,6 @@
 //! Événements émis par le cœur vers l'interface.
 
-use crate::model::{AccountId, AccountStatus, FolderId, MessageId};
+use crate::model::{AccountId, AccountStatus, DraftId, DraftState, FolderId, MessageId};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -12,6 +12,8 @@ pub enum CoreEvent {
     FolderChanged { account_id: AccountId, folder_id: FolderId },
     MessageUpdated { message_id: MessageId },
     SyncProgress { account_id: AccountId, folder_id: FolderId, fetched: u32, total: u32 },
+    OutboxChanged { draft_id: DraftId, state: DraftState, send_at: Option<i64>, error: Option<String> },
+    SettingsChanged { key: String },
 }
 
 pub trait EventSink: Send + Sync + 'static {

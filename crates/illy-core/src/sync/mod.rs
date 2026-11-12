@@ -2,6 +2,7 @@
 
 mod diff;
 mod body;
+mod send;
 mod folder_sync;
 mod manager;
 mod ops_exec;
@@ -27,6 +28,14 @@ pub struct WorkerConfig {
     pub flags_recent_window: usize,
     pub backoff_min: Duration,
     pub backoff_max: Duration,
+    /// Dossier des données (brouillons et copies d'envoi) ; `None` : dossier temporaire.
+    pub data_dir: Option<std::path::PathBuf>,
+}
+
+impl WorkerConfig {
+    pub fn drafts_dir(&self) -> std::path::PathBuf {
+        self.data_dir.clone().unwrap_or_else(|| std::env::temp_dir().join("illy")).join("drafts")
+    }
 }
 
 impl Default for WorkerConfig {
@@ -40,6 +49,7 @@ impl Default for WorkerConfig {
             flags_recent_window: 2000,
             backoff_min: Duration::from_secs(5),
             backoff_max: Duration::from_secs(5 * 60),
+            data_dir: None,
         }
     }
 }

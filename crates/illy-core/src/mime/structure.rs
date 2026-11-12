@@ -92,14 +92,38 @@ fn decode_rfc2231(v: &str) -> String {
     }
 }
 
+/// Valeur d'un paramètre, y compris sous forme RFC 2231 (`key*`, ou continuations `key*0*`, `key*1`…).
+fn param_value(params: &imap_proto::BodyParams<'_>, key: &str) -> Option<String> {
+    let list = params.as_ref()?;
+    if let Some(v) = param(params, &format!("{key}*")) {
+        return Some(decode_rfc2231(&v));
+    }
+    // Continuations : key*0*, key*1*, key*2… (l'astérisque final signale un segment encodé).
+    let prefix = format!("{}*", key.to_ascii_lowercase());
+    let mut segs: Vec<(u32, bool, String)> = list
+        .iter()
+        .filter_map(|(k, v)| {
+            let k = k.to_ascii_lowercase();
+            let rest = k.strip_prefix(&prefix)?;
+            let (num, encoded) = match rest.strip_suffix('*') {
+                Some(n) => (n, true),
+                None => (rest, false),
+            };
+            Some((num.parse().ok()?, encoded, v.to_string()))
+        })
+        .collect();
+    if !segs.is_empty() {
+        segs.sort_by_key(|s| s.0);
+        let any_encoded = segs.iter().any(|s| s.1);
+        let joined: String = segs.into_iter().map(|s| s.2).collect();
+        return Some(if any_encoded { decode_rfc2231(&joined) } else { joined });
+    }
+    param(params, key)
+}
+
 fn filename_of(common: &BodyContentCommon<'_>) -> Option<String> {
-    let disp_params = common.disposition.as_ref().map(|d| &d.params);
-    let from_disp = disp_params.and_then(|p| {
-        param(p, "filename*").map(|v| decode_rfc2231(&v)).or_else(|| param(p, "filename"))
-    });
-    let from_type = || {
-        param(&common.ty.params, "name*").map(|v| decode_rfc2231(&v)).or_else(|| param(&common.ty.params, "name"))
-    };
+    let from_disp = common.disposition.as_ref().and_then(|d| param_value(&d.params, "filename"));
+    let from_type = || param_value(&common.ty.params, "name");
     from_disp.or_else(from_type).map(|n| decode_encoded_words(&n)).filter(|n| !n.trim().is_empty())
 }
 
@@ -217,6 +241,14 @@ mod tests {
         let p = bs(r#"(("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 10 1 NIL NIL NIL)("TEXT" "PLAIN" ("NAME" "=?UTF-8?Q?r=C3=A9sum=C3=A9.txt?=") NIL NIL "BASE64" 40 1 NIL ("ATTACHMENT" NIL) NIL) "MIXED" ("BOUNDARY" "m1") NIL NIL)"#);
         assert_eq!(summary(&p), vec![("1", PartKind::BodyText), ("2", PartKind::Attachment)]);
         assert_eq!(p[1].filename.as_deref(), Some("résumé.txt"));
+    }
+
+    #[test]
+    fn structure_rfc2231_continuation_filename() {
+        let p = bs(r#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 10 1 NIL NIL NIL)("APPLICATION" "PDF" NIL NIL NIL "BASE64" 40 NIL ("ATTACHMENT" ("FILENAME*0*" "utf-8''facture%20" "FILENAME*1*" "%C3%A9.pdf")) NIL) "MIXED" ("BOUNDARY" "m1") NIL NIL)"#);
+        assert_eq!(p[1].filename.as_deref(), Some("facture é.pdf"));
+        let q = bs(r#"(("TEXT" "PLAIN" NIL NIL NIL "7BIT" 10 1 NIL NIL NIL)("APPLICATION" "PDF" ("NAME*0" "rapport-" "NAME*1" "annuel.pdf") NIL NIL "BASE64" 40 NIL NIL NIL) "MIXED" ("BOUNDARY" "m1") NIL NIL)"#);
+        assert_eq!(q[1].filename.as_deref(), Some("rapport-annuel.pdf"));
     }
 
     #[test]

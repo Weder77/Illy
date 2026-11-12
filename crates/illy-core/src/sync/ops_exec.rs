@@ -3,8 +3,8 @@
 use super::WorkerConfig;
 use crate::error::{CoreError, Result};
 use crate::events::{CoreEvent, EventSink};
-use crate::imap::{select, store_seen, ImapSession};
-use crate::model::{AccountId, FolderId};
+use crate::imap::{select, store_seen, Caps, ImapSession};
+use crate::model::{Account, FolderId};
 use crate::store::{now_ts, OpKind, Store};
 use std::time::Duration;
 
@@ -18,14 +18,39 @@ fn is_transient(e: &CoreError) -> bool {
     matches!(e, CoreError::Network(_) | CoreError::Parse(_) | CoreError::Tls(_))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_due_ops(
     s: &mut ImapSession,
+    caps: &Caps,
     store: &Store,
     events: &dyn EventSink,
-    account: AccountId,
+    account_info: &Account,
+    password: &str,
     cfg: &WorkerConfig,
 ) -> Result<()> {
+    let account = account_info.id;
     for op in store.due_ops(account, now_ts())? {
+        let r = match op.kind {
+            OpKind::Send => super::send::exec_send(s, caps, store, events, account_info, password, cfg, &op).await,
+            OpKind::SentCopy => super::send::exec_sent_copy(s, store, account_info, cfg, &op).await,
+            OpKind::SetAnswered => super::send::exec_set_answered(s, store, &op).await,
+            OpKind::AppendDraft => super::send::exec_append_draft(s, caps, store, account_info, &op).await,
+            OpKind::SetSeen => Ok(()),
+        };
+        match r {
+            Ok(()) => {}
+            Err(e) if is_transient(&e) => {
+                if op.kind != OpKind::Send {
+                    let wait = backoff(op.attempts + 1, cfg).as_secs() as i64;
+                    store.op_retry(op.id, now_ts() + wait.max(1), &e.to_string())?;
+                }
+                return Err(e);
+            }
+            Err(e) => {
+                tracing::warn!(op = op.id, "action abandonnée : {e}");
+                store.op_done(op.id)?;
+            }
+        }
         match op.kind {
             OpKind::SetSeen => {
                 let folder: FolderId = op.payload["folderId"].as_i64().unwrap_or(-1);
@@ -62,6 +87,7 @@ pub async fn run_due_ops(
                     }
                 }
             }
+            _ => {}
         }
     }
     Ok(())
