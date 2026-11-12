@@ -6,6 +6,7 @@ use illy_core::model::{ServerConfig, TlsMode};
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 pub const USER: &str = "alice@localhost";
@@ -18,6 +19,31 @@ pub struct GreenMail {
     pub imap_port: u16,
     pub smtp_port: u16,
     pub imaps_port: u16,
+    _slot: Slot,
+}
+
+/// Les tests d'un même binaire tournent en parallèle : au plus `MAX_SERVERS` JVM à la fois,
+/// sinon une machine de CI à 2 cœurs met plus de 30 s à en démarrer une.
+const MAX_SERVERS: usize = 4;
+static RUNNING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+struct Slot;
+
+impl Slot {
+    fn take() -> Slot {
+        let (lock, cv) = &RUNNING;
+        let mut n = cv.wait_while(lock.lock().unwrap(), |n| *n >= MAX_SERVERS).unwrap();
+        *n += 1;
+        Slot
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        let (lock, cv) = &RUNNING;
+        *lock.lock().unwrap() -= 1;
+        cv.notify_one();
+    }
 }
 
 fn free_port() -> u16 {
@@ -57,8 +83,20 @@ fn jar() -> String {
 
 impl GreenMail {
     pub fn start() -> GreenMail {
+        let slot = Slot::take();
+        // Un port choisi libre peut être pris entre-temps par un autre test : la JVM s'arrête alors,
+        // et on recommence avec d'autres ports.
+        for _ in 0..3 {
+            if let Some((child, imap_port, smtp_port, imaps_port)) = Self::spawn_ready() {
+                return GreenMail { child, imap_port, smtp_port, imaps_port, _slot: slot };
+            }
+        }
+        panic!("GreenMail n'a pas démarré (java et target/greenmail/greenmail-standalone.jar, voir scripts/fetch-greenmail.sh)");
+    }
+
+    fn spawn_ready() -> Option<(Child, u16, u16, u16)> {
         let (imap_port, smtp_port, imaps_port) = (free_port(), free_port(), free_port());
-        let child = Command::new("java")
+        let mut child = Command::new("java")
             .arg(format!("-Dgreenmail.imap.port={imap_port}"))
             .arg("-Dgreenmail.imap.hostname=127.0.0.1")
             .arg(format!("-Dgreenmail.smtp.port={smtp_port}"))
@@ -73,14 +111,20 @@ impl GreenMail {
             .stderr(Stdio::null())
             .spawn()
             .expect("java + target/greenmail/greenmail-standalone.jar (scripts/fetch-greenmail.sh)");
-        let gm = GreenMail { child, imap_port, smtp_port, imaps_port };
         // Prêt = un vrai LOGIN réussit (les utilisateurs sont créés après l'ouverture des ports).
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + Duration::from_secs(60);
         loop {
-            if login_works(imap_port) && TcpStream::connect(("127.0.0.1", smtp_port)).is_ok() {
-                return gm;
+            if let Ok(Some(_)) = child.try_wait() {
+                return None;
             }
-            assert!(Instant::now() < deadline, "GreenMail n'a pas démarré");
+            if login_works(imap_port) && TcpStream::connect(("127.0.0.1", smtp_port)).is_ok() {
+                return Some((child, imap_port, smtp_port, imaps_port));
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
     }
