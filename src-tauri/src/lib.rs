@@ -75,8 +75,7 @@ pub fn run() {
             tracing::info!(version = env!("CARGO_PKG_VERSION"), "démarrage d'Illy");
             let runtime = tauri::async_runtime::handle().inner().clone();
             let core = Core::open(
-                &data.join("illy.db"),
-                &data.join("tmp"),
+                &data,
                 secret_store()?,
                 Arc::new(TauriSink(app.handle().clone())),
                 WorkerConfig::default(),

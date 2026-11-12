@@ -35,6 +35,7 @@ pub async fn run_due_ops(
             OpKind::SentCopy => super::send::exec_sent_copy(s, store, account_info, cfg, &op).await,
             OpKind::SetAnswered => super::send::exec_set_answered(s, store, &op).await,
             OpKind::AppendDraft => super::send::exec_append_draft(s, caps, store, account_info, &op).await,
+            OpKind::DeleteRemote => super::send::exec_delete_remote(s, caps, store, &op).await,
             OpKind::SetSeen => Ok(()),
         };
         match r {

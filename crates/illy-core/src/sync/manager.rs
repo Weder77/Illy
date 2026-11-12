@@ -65,6 +65,13 @@ impl SyncManager {
         self.start(account);
     }
 
+    /// Prévient le worker qu'une action attend, sans attendre (appel depuis du code synchrone).
+    pub fn try_notify(&self, account: AccountId) {
+        if let Some(h) = self.workers.lock().unwrap().get(&account) {
+            let _ = h.tx.try_send(WorkerRequest::OpsAvailable);
+        }
+    }
+
     pub async fn send(&self, account: AccountId, req: WorkerRequest) -> Result<()> {
         let tx = self.workers.lock().unwrap().get(&account).map(|h| h.tx.clone()).ok_or(CoreError::NotFound)?;
         tx.send(req).await.map_err(|_| CoreError::NotFound)

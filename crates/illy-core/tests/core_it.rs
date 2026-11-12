@@ -21,8 +21,7 @@ struct Env {
 fn open_core(dir: &std::path::Path, secrets: Arc<MemorySecretStore>) -> Core {
     let cfg = WorkerConfig { poll_interval: Duration::from_secs(1), backoff_min: Duration::from_millis(200), ..Default::default() };
     Core::open(
-        &dir.join("illy.db"),
-        &dir.join("tmp"),
+        dir,
         secrets,
         Arc::new(RecordingSink::default()),
         cfg,

@@ -354,14 +354,14 @@ async fn connected(
     account: &Account,
     password: &str,
 ) -> Result<Exit> {
-    // Actions faites hors ligne : envoyées avant toute relecture des drapeaux du serveur.
-    ctx.store.ops_due_now(ctx.account)?;
-    timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
-
-    // Dossiers.
+    // Dossiers d'abord : les actions en attente (envoi, brouillons) ont besoin d'Envoyés et de Brouillons.
     let folders = timed(list_folders(&mut s)).await?;
     ctx.store.upsert_folders(ctx.account, &folders)?;
     ctx.events.emit(CoreEvent::FoldersChanged { account_id: ctx.account });
+
+    // Actions faites hors ligne : envoyées avant toute relecture des drapeaux du serveur.
+    ctx.store.ops_due_now(ctx.account)?;
+    timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
     let all = ctx.store.syncable_folders(ctx.account)?;
     let inbox = all.iter().find(|f| f.2 == FolderRole::Inbox).map(|f| (f.0, f.1.clone()));
     // Les dossiers disparus (renommés, supprimés ailleurs) ne gardent ni historique en attente ni mode sûr.

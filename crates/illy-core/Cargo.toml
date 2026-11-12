@@ -30,6 +30,7 @@ html-escape = "0.2"
 socket2 = "0.6"
 encoding_rs = "0.8"
 uuid = { version = "1", features = ["v4"] }
+mime_guess = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]

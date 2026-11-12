@@ -61,6 +61,18 @@ fn reply_source(store: &Store, d: &Draft) -> Option<crate::store::ReplySource> {
     }
 }
 
+/// Nombre de nouvelles tentatives quand le dossier visé (Envoyés, Brouillons) n'est pas encore connu.
+const MISSING_FOLDER_RETRIES: u32 = 5;
+
+/// Les dossiers ne sont peut-être pas encore listés (compte tout juste ajouté) : on réessaie dans 30 s.
+fn retry_until_folder_known(store: &Store, op: &Op) -> Result<()> {
+    if op.attempts >= MISSING_FOLDER_RETRIES {
+        tracing::warn!(op = op.id, "dossier introuvable, action abandonnée");
+        return store.op_done(op.id);
+    }
+    store.op_retry(op.id, now_ts() + 30, "dossier pas encore connu")
+}
+
 fn fail(store: &Store, events: &dyn EventSink, op: &Op, d: &Draft, msg: String) -> Result<()> {
     store.op_done(op.id)?;
     store.set_draft_state(d.id, DraftState::Failed, Some(&msg), d.send_at)?;
@@ -159,7 +171,11 @@ pub(crate) async fn exec_sent_copy(s: &mut ImapSession, store: &Store, account: 
     let message_id = op.payload["messageId"].as_str().unwrap_or("").trim_matches(['<', '>']).to_string();
     let dir = cfg.drafts_dir().join(id.to_string());
     let raw = std::fs::read(dir.join("sent.eml")).ok();
-    if let (Some(raw), Some((_, path))) = (raw, store.folder_by_role(account.id, FolderRole::Sent)?) {
+    let sent = store.folder_by_role(account.id, FolderRole::Sent)?;
+    if raw.is_some() && sent.is_none() && op.attempts < MISSING_FOLDER_RETRIES {
+        return retry_until_folder_known(store, op);
+    }
+    if let (Some(raw), Some((_, path))) = (raw, sent) {
         select(s, &path, false).await?;
         if search_header(s, "Message-ID", &message_id).await?.is_empty() {
             append(s, &path, "(\\Seen)", &raw).await?;
@@ -193,7 +209,7 @@ pub(crate) async fn exec_append_draft(
         Err(e) => return Err(e),
     };
     let Some((_, path)) = store.folder_by_role(account.id, FolderRole::Drafts)? else {
-        return store.op_done(op.id);
+        return retry_until_folder_known(store, op);
     };
     let files = collect_files(s, store, &d, false).await?.unwrap_or_default();
     let reply = reply_source(store, &d);
@@ -211,5 +227,15 @@ pub(crate) async fn exec_append_draft(
     }
     let uid = search_header(s, "X-Illy-Draft", &d.id.to_string()).await?.into_iter().max();
     store.set_draft_remote_uid(d.id, uid)?;
+    store.op_done(op.id)
+}
+
+pub(crate) async fn exec_delete_remote(s: &mut ImapSession, caps: &Caps, store: &Store, op: &Op) -> Result<()> {
+    let folder = op.payload["folderId"].as_i64().unwrap_or(-1);
+    let uid = op.payload["uid"].as_u64().unwrap_or(0) as u32;
+    if let Ok(path) = store.folder_path(folder) {
+        select(s, &path, false).await?;
+        delete_uid(s, uid, caps).await?;
+    }
     store.op_done(op.id)
 }

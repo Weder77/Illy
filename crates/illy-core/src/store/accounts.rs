@@ -76,6 +76,14 @@ impl Store {
         })
     }
 
+    pub fn account_signature(&self, id: AccountId) -> Result<String> {
+        self.with_read(|c| {
+            c.query_row("SELECT signature_html FROM accounts WHERE id = ?1", [id], |r| r.get(0))
+                .optional()?
+                .ok_or(CoreError::NotFound)
+        })
+    }
+
     pub fn delete_account(&self, id: AccountId) -> Result<()> {
         self.with(|c| {
             c.execute("DELETE FROM accounts WHERE id = ?1", [id])?;

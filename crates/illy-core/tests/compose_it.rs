@@ -7,6 +7,8 @@ use illy_core::events::{CoreEvent, RecordingSink};
 use illy_core::imap::{connect, fetch_headers, search_all_uids, select};
 use illy_core::model::*;
 use illy_core::store::{now_ts, OpKind, Store};
+#[allow(unused_imports)]
+use illy_core::model::ListScope;
 use illy_core::sync::{run_due_ops, sync_folder, WorkerConfig};
 
 struct Env {
@@ -168,4 +170,186 @@ async fn auth_failure_marks_failed_without_retry() {
     let failed = e.sink.events().iter().filter(|x| matches!(x, CoreEvent::OutboxChanged { state: DraftState::Failed, .. })).count();
     assert_eq!(failed, 1);
     assert_eq!(e.gm.count_in(BOB, "INBOX").await, 0);
+}
+
+mod core_level {
+    use super::*;
+    use illy_core::secrets::MemorySecretStore;
+    use illy_core::{Core, CoreError};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    fn open(dir: &std::path::Path, secrets: Arc<MemorySecretStore>) -> Core {
+        let cfg = WorkerConfig { poll_interval: Duration::from_secs(1), backoff_min: Duration::from_millis(200), ..Default::default() };
+        Core::open(dir, secrets, Arc::new(RecordingSink::default()), cfg, tokio::runtime::Handle::current()).unwrap()
+    }
+
+    async fn setup(gm: &GreenMail) -> (tempfile::TempDir, Arc<MemorySecretStore>, Core, i64) {
+        gm.create_folder("Sent").await;
+        gm.create_folder("Drafts").await;
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = Arc::new(MemorySecretStore::default());
+        let core = open(dir.path(), secrets.clone());
+        let acc = core.add_account(gm.new_account(), PASSWORD.into()).await.unwrap().id;
+        core.set_setting("undo_send_seconds", serde_json::json!(5)).unwrap();
+        (dir, secrets, core, acc)
+    }
+
+    fn eml_from_bob(n: u32) -> Vec<u8> {
+        format!(
+            "From: Bob <bob@localhost>\r\nTo: alice@localhost\r\nSubject: Question {n}\r\nMessage-ID: <q{n}@localhost>\r\n\
+             Date: 01 Nov 2026 10:00:00 +0000\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTu viens ?\r\n"
+        )
+        .into_bytes()
+    }
+
+    async fn inbox_message(core: &Core, acc: i64, subject: &str) -> i64 {
+        for _ in 0..200 {
+            if let Some(f) = core.list_folders(acc).unwrap().into_iter().find(|f| f.role == FolderRole::Inbox) {
+                if let Some(m) = core.list_messages(ListScope::Folder(f.id), 0, 50).unwrap().into_iter().find(|m| m.subject == subject) {
+                    return m.id;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("mail {subject} not synced");
+    }
+
+    async fn wait_bob(gm: &GreenMail, n: usize, secs: u64) -> usize {
+        let deadline = std::time::Instant::now() + Duration::from_secs(secs);
+        loop {
+            let c = gm.count_in(BOB, "INBOX").await;
+            if c >= n || std::time::Instant::now() > deadline {
+                return c;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reply_flow_end_to_end() {
+        let gm = GreenMail::start();
+        gm.append("INBOX", &eml_from_bob(1), false).await;
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let original = inbox_message(&core, acc, "Question 1").await;
+        let d = core.create_draft(DraftKind::Reply, None, Some(original)).await.unwrap();
+        assert_eq!(d.to[0].email, BOB);
+        assert_eq!(d.subject, "Re: Question 1");
+        assert!(d.body_html.contains("a écrit"));
+        let ticket = core.send_draft(d.id).await.unwrap();
+        assert!(ticket.send_at >= now_ts() + 4);
+        assert_eq!(core.list_outbox().unwrap()[0].state, DraftState::Queued);
+        assert_eq!(wait_bob(&gm, 1, 25).await, 1);
+        let mut ok = false;
+        for _ in 0..100 {
+            if gm.server_flags("INBOX").await.first().is_some_and(|f| f.2) {
+                ok = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert!(ok, "original marked answered");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn restart_during_undo_window_sends_once() {
+        let gm = GreenMail::start();
+        let (dir, secrets, core, acc) = setup(&gm).await;
+        let mut d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        d.to = vec![Address { name: None, email: BOB.into() }];
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: d.to.clone(), cc: vec![], bcc: vec![], subject: "Avant fermeture".into(), body_html: "<p>x</p>".into() }).unwrap();
+        core.send_draft(d.id).await.unwrap();
+        drop(core);
+        let core2 = open(dir.path(), secrets);
+        assert_eq!(wait_bob(&gm, 1, 25).await, 1);
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(gm.count_in(BOB, "INBOX").await, 1, "sent exactly once");
+        drop(core2);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn forward_keeps_attachments() {
+        let gm = GreenMail::start();
+        gm.append("INBOX", &fixture("inline_cid_and_pdf.eml"), false).await;
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let original = inbox_message(&core, acc, "Devis cuisine").await;
+        let d = core.create_draft(DraftKind::Forward, None, Some(original)).await.unwrap();
+        assert!(d.to.is_empty());
+        assert_eq!(d.subject, "Fwd: Devis cuisine");
+        assert_eq!(d.attachments.len(), 1);
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![Address { name: None, email: BOB.into() }], cc: vec![], bcc: vec![], subject: d.subject.clone(), body_html: d.body_html.clone() }).unwrap();
+        core.send_draft(d.id).await.unwrap();
+        assert_eq!(wait_bob(&gm, 1, 25).await, 1);
+        let mut b = gm.session_as(BOB).await;
+        select(&mut b, "INBOX", false).await.unwrap();
+        let uids = search_all_uids(&mut b).await.unwrap();
+        let h = fetch_headers(&mut b, &uids, true).await.unwrap();
+        assert!(h[0].parts.iter().any(|p| p.filename.as_deref() == Some("devis.pdf")), "{:?}", h[0].parts);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn send_validation() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        assert!(matches!(core.send_draft(d.id).await, Err(CoreError::InvalidInput(_))));
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![Address { name: None, email: "pas une adresse".into() }], cc: vec![], bcc: vec![], subject: "x".into(), body_html: "<p>x</p>".into() }).unwrap();
+        let r = core.send_draft(d.id).await;
+        assert!(matches!(&r, Err(CoreError::InvalidInput(m)) if m == "Adresse invalide : pas une adresse"), "{:?}", r.err());
+        assert_eq!(core.get_draft(d.id).unwrap().state, DraftState::Editing);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cancel_send_restores_draft() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![Address { name: None, email: BOB.into() }], cc: vec![], bcc: vec![], subject: "Oups".into(), body_html: "<p>x</p>".into() }).unwrap();
+        core.send_draft(d.id).await.unwrap();
+        assert!(core.cancel_send(d.id).unwrap());
+        assert_eq!(core.get_draft(d.id).unwrap().state, DraftState::Editing);
+        tokio::time::sleep(Duration::from_secs(7)).await;
+        assert_eq!(gm.count_in(BOB, "INBOX").await, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn close_empty_draft_does_not_upload() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let empty = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        core.close_draft(empty.id).await.unwrap();
+        assert!(matches!(core.get_draft(empty.id), Err(CoreError::NotFound)), "empty draft discarded");
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![], cc: vec![], bcc: vec![], subject: "Idée".into(), body_html: "<p>à creuser</p>".into() }).unwrap();
+        core.close_draft(d.id).await.unwrap();
+        let mut n = 0;
+        for _ in 0..90 {
+            n = gm.count_in(USER, "Drafts").await;
+            if n > 0 {
+                break;
+            }
+            // Un brouillon fermé avant la première liste des dossiers est réessayé 30 s plus tard.
+            core.store().ops_due_now(acc).unwrap();
+            let _ = core.sync_manager().send(acc, illy_core::sync::WorkerRequest::OpsAvailable).await;
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert_eq!(n, 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn attachments_are_copied_into_the_draft() {
+        let gm = GreenMail::start();
+        let (dir, _s, core, acc) = setup(&gm).await;
+        let src = dir.path().join("rapport.pdf");
+        std::fs::write(&src, b"%PDF-1.7").unwrap();
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        let d = core.add_attachments(d.id, vec![src.clone()]).unwrap();
+        assert_eq!(d.attachments[0].filename, "rapport.pdf");
+        assert_eq!(d.attachments[0].mime_type, "application/pdf");
+        std::fs::remove_file(&src).unwrap();
+        let AttachmentSource::File { path } = &d.attachments[0].source else { panic!() };
+        assert_eq!(std::fs::read(path).unwrap(), b"%PDF-1.7", "copy survives the original's deletion");
+        let d = core.remove_attachment(d.id, 0).unwrap();
+        assert!(d.attachments.is_empty());
+    }
 }

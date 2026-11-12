@@ -12,6 +12,7 @@ pub enum OpKind {
     AppendDraft,
     SetAnswered,
     SentCopy,
+    DeleteRemote,
 }
 
 #[derive(Clone, Debug, PartialEq)]
