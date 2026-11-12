@@ -98,6 +98,9 @@ async fn sent_copy_added_once() {
     assert_eq!(e.gm.count_in(USER, "Sent").await, 0, "sent copy waits 15 s (Gmail may add it itself)");
     e.store.ops_due_now(e.acc.id).unwrap();
     run(&e, PASSWORD).await;
+    assert_eq!(e.gm.count_in(USER, "Sent").await, 0, "a reconnection does not shorten the 15 s");
+    e.store.force_ops_due(e.acc.id).unwrap();
+    run(&e, PASSWORD).await;
     assert_eq!(e.gm.count_in(USER, "Sent").await, 1);
     assert!(matches!(e.store.get_draft(id), Err(illy_core::CoreError::NotFound)), "local draft cleaned after the copy");
     e.store.enqueue_op(e.acc.id, OpKind::SentCopy, serde_json::json!({"draftId": id, "messageId": "<x@y>"})).unwrap();
@@ -172,6 +175,38 @@ async fn auth_failure_marks_failed_without_retry() {
     assert_eq!(e.gm.count_in(BOB, "INBOX").await, 0);
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn smtp_refusal_is_not_a_password_error() {
+    let mut e = env().await;
+    let smtp = FakeSmtp::start("550 5.1.1 <bob@localhost>: User unknown").await;
+    e.acc.smtp = smtp.config();
+    let id = e.store.insert_draft(&draft(&e, "Refus")).unwrap();
+    queue_send(&e, id);
+    run(&e, PASSWORD).await;
+    let d = e.store.get_draft(id).unwrap();
+    assert_eq!(d.state, DraftState::Failed);
+    let err = d.last_error.unwrap();
+    assert!(err.contains("User unknown"), "the server's reason is shown: {err}");
+    assert!(!err.contains("Mot de passe"), "{err}");
+    assert_eq!(e.store.get_account(e.acc.id).unwrap().status, AccountStatus::Ok, "the account is not put in auth error");
+    assert_eq!(e.store.pending_ops_count(e.acc.id).unwrap(), 0, "no retry for a permanent refusal");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smtp_try_later_is_retried() {
+    let mut e = env().await;
+    let smtp = FakeSmtp::start("451 4.7.1 Greylisted, try again later").await;
+    e.acc.smtp = smtp.config();
+    let id = e.store.insert_draft(&draft(&e, "Plus tard")).unwrap();
+    queue_send(&e, id);
+    run(&e, PASSWORD).await;
+    let d = e.store.get_draft(id).unwrap();
+    assert_eq!(d.state, DraftState::Queued, "a 4xx answer is temporary");
+    let ops = e.store.due_ops(e.acc.id, now_ts() + 10_000).unwrap();
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0].attempts, 1);
+}
+
 mod core_level {
     use super::*;
     use illy_core::secrets::MemorySecretStore;
@@ -215,6 +250,20 @@ mod core_level {
         panic!("mail {subject} not synced");
     }
 
+    /// Mail d'un dossier (par rôle) une fois synchronisé ; relance la synchro de ce dossier en attendant.
+    async fn folder_message(core: &Core, acc: i64, role: FolderRole, subject: &str) -> i64 {
+        for _ in 0..150 {
+            if let Some(f) = core.list_folders(acc).unwrap().into_iter().find(|f| f.role == role) {
+                if let Some(m) = core.list_messages(ListScope::Folder(f.id), 0, 50).unwrap().into_iter().find(|m| m.subject == subject) {
+                    return m.id;
+                }
+                let _ = core.select_folder(f.id).await;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        panic!("mail {subject} not synced");
+    }
+
     async fn wait_bob(gm: &GreenMail, n: usize, secs: u64) -> usize {
         let deadline = std::time::Instant::now() + Duration::from_secs(secs);
         loop {
@@ -249,6 +298,21 @@ mod core_level {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
         assert!(ok, "original marked answered");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reconnecting_does_not_skip_the_undo_window() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        core.set_setting("undo_send_seconds", serde_json::json!(30)).unwrap();
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![Address { name: None, email: BOB.into() }], cc: vec![], bcc: vec![], subject: "Délai".into(), body_html: "<p>x</p>".into() }).unwrap();
+        core.send_draft(d.id).await.unwrap();
+        // Coupure réseau, mise en veille, nouveau mot de passe… : le worker se reconnecte.
+        core.sync_manager().restart(acc);
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        assert_eq!(gm.count_in(BOB, "INBOX").await, 0, "nothing sent during the undo window");
+        assert!(core.cancel_send(d.id).unwrap(), "still cancellable");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -351,5 +415,102 @@ mod core_level {
         assert_eq!(std::fs::read(path).unwrap(), b"%PDF-1.7", "copy survives the original's deletion");
         let d = core.remove_attachment(d.id, 0).unwrap();
         assert!(d.attachments.is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn editing_a_webmail_draft_keeps_its_attachments() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        gm.append("Drafts", &fixture("inline_cid_and_pdf.eml"), true).await;
+        let m = folder_message(&core, acc, FolderRole::Drafts, "Devis cuisine").await;
+        let d = core.draft_from_message(m).await.unwrap();
+        assert!(!d.attachments.is_empty());
+        assert!(
+            d.attachments.iter().all(|a| matches!(a.source, AttachmentSource::File { .. })),
+            "attachments are copied locally before the server copy is replaced"
+        );
+        core.close_draft(d.id).await.unwrap();
+        let mut last = vec![];
+        for _ in 0..100 {
+            let mut s = gm.session().await;
+            select(&mut s, "Drafts", false).await.unwrap();
+            let uids = search_all_uids(&mut s).await.unwrap();
+            last = fetch_headers(&mut s, &uids, true).await.unwrap().into_iter().map(|h| (h.uid, h.parts)).collect();
+            if last.len() == 1 && last[0].0 != 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        assert_eq!(last.len(), 1, "the old copy is replaced, not duplicated");
+        assert_ne!(last[0].0, 1, "the server copy was rewritten");
+        assert!(last[0].1.iter().any(|p| p.filename.as_deref() == Some("devis.pdf")), "{:?}", last[0].1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn reopening_an_own_server_draft_resumes_the_local_one() {
+        let gm = GreenMail::start();
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        let boss = Address { name: None, email: "boss@localhost".into() };
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: vec![Address { name: None, email: BOB.into() }], cc: vec![], bcc: vec![boss.clone()], subject: "Avec Cci".into(), body_html: "<p>x</p>".into() }).unwrap();
+        core.close_draft(d.id).await.unwrap();
+        for _ in 0..100 {
+            if core.get_draft(d.id).unwrap().remote_uid.is_some() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        let m = folder_message(&core, acc, FolderRole::Drafts, "Avec Cci").await;
+        let again = core.draft_from_message(m).await.unwrap();
+        assert_eq!(again.id, d.id, "the local draft is reopened");
+        assert_eq!(again.bcc, vec![boss], "Bcc is kept (it is never in the server copy)");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn untouched_reply_is_not_kept_and_a_second_click_reuses_it() {
+        let gm = GreenMail::start();
+        gm.append("INBOX", &eml_from_bob(3), false).await;
+        let (_dir, _s, core, acc) = setup(&gm).await;
+        let original = inbox_message(&core, acc, "Question 3").await;
+        let d = core.create_draft(DraftKind::Reply, None, Some(original)).await.unwrap();
+        assert_eq!(core.create_draft(DraftKind::Reply, None, Some(original)).await.unwrap().id, d.id, "same reply reopened");
+        core.close_draft(d.id).await.unwrap();
+        assert!(matches!(core.get_draft(d.id), Err(CoreError::NotFound)), "an accidental Reply leaves nothing behind");
+        assert!(core.draft_for_message(original).unwrap().is_none());
+        let d = core.create_draft(DraftKind::Reply, None, Some(original)).await.unwrap();
+        core.update_draft(DraftInput { id: d.id, account_id: acc, to: d.to.clone(), cc: vec![], bcc: vec![], subject: d.subject.clone(), body_html: format!("<p>Oui !</p>{}", d.body_html) }).unwrap();
+        core.close_draft(d.id).await.unwrap();
+        assert_eq!(core.draft_for_message(original).unwrap().map(|x| x.id), Some(d.id), "an edited reply is kept");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn attachment_copies_never_overwrite_each_other() {
+        let gm = GreenMail::start();
+        let (dir, _s, core, acc) = setup(&gm).await;
+        let file = |name: &str, body: &[u8]| {
+            let sub = dir.path().join(format!("src-{}", body.len()));
+            std::fs::create_dir_all(&sub).unwrap();
+            let p = sub.join(name);
+            std::fs::write(&p, body).unwrap();
+            p
+        };
+        let d = core.create_draft(DraftKind::New, Some(acc), None).await.unwrap();
+        core.add_attachments(d.id, vec![file("a.pdf", b"A"), file("b.pdf", b"BB")]).unwrap();
+        core.remove_attachment(d.id, 0).unwrap();
+        let d = core.add_attachments(d.id, vec![file("b.pdf", b"other b")]).unwrap();
+        let paths: Vec<String> = d
+            .attachments
+            .iter()
+            .map(|a| match &a.source {
+                AttachmentSource::File { path } => path.clone(),
+                _ => panic!(),
+            })
+            .collect();
+        assert_ne!(paths[0], paths[1]);
+        assert_eq!(std::fs::read(&paths[0]).unwrap(), b"BB");
+        assert_eq!(std::fs::read(&paths[1]).unwrap(), b"other b");
+        let d = core.remove_attachment(d.id, 1).unwrap();
+        let AttachmentSource::File { path } = &d.attachments[0].source else { panic!() };
+        assert_eq!(std::fs::read(path).unwrap(), b"BB", "removing one entry keeps the other's file");
     }
 }

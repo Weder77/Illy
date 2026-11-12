@@ -21,6 +21,20 @@ pub fn attachment_timeout(size: u64) -> Duration {
     Duration::from_secs((30 + size / 50_000).min(600))
 }
 
+/// Au-delà, le brouillon n'est copié sur le serveur qu'à la fermeture de l'éditeur.
+const PERIODIC_UPLOAD_MAX_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Taille maximale d'un fichier joint (il est lu en entier pour construire le message).
+const MAX_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
+
+/// `n-nom` dans `dir`, avec le premier `n` libre : deux pièces jointes n'ont jamais le même fichier.
+fn unique_path(dir: &Path, name: &str) -> PathBuf {
+    (1u32..)
+        .map(|n| dir.join(format!("{n}-{name}")))
+        .find(|p| !p.exists())
+        .expect("un nom libre existe")
+}
+
 pub struct Core {
     store: Store,
     secrets: Arc<dyn SecretStore>,
@@ -286,6 +300,10 @@ impl Core {
                 draft.body_html = format!("<p></p>{}", signature_block(&self.store.account_signature(account.id)?));
             }
             (_, None) => return Err(CoreError::InvalidInput("mail d'origine manquant".into())),
+            (_, Some(src_id)) if self.store.draft_for_message(src_id)?.is_some_and(|d| d.kind == kind) => {
+                // Deuxième clic sur « Répondre » : on reprend la réponse déjà commencée.
+                return Ok(self.store.draft_for_message(src_id)?.expect("vérifié juste avant"));
+            }
             (_, Some(src_id)) => {
                 let src = self.store.message_headers_for_reply(src_id)?;
                 let detail = self.original_detail(src_id).await?;
@@ -325,9 +343,17 @@ impl Core {
     }
 
     /// Reprend un mail du dossier Brouillons pour le modifier (il remplacera la copie serveur).
+    /// Si c'est la copie serveur d'un brouillon d'Illy, c'est ce brouillon local qui est rouvert
+    /// (il garde les Cci, absents des copies serveur, et les pièces jointes transférées).
     pub async fn draft_from_message(&self, message_id: MessageId) -> Result<Draft> {
+        let (account, folder, uid) = self.store.message_location(message_id)?;
+        let in_drafts = self.store.folder_by_role(account, FolderRole::Drafts)?.is_some_and(|(f, _)| f == folder);
+        if in_drafts {
+            if let Some(local) = self.store.draft_by_remote_uid(account, uid)? {
+                return Ok(local);
+            }
+        }
         let detail = self.original_detail(message_id).await?;
-        let (account, _, uid) = self.store.message_location(message_id)?;
         let body = match detail.body {
             MessageBody::Html(h) | MessageBody::Text(h) => h,
         };
@@ -354,11 +380,39 @@ impl Core {
             state: DraftState::Editing,
             last_error: None,
             send_at: None,
-            remote_uid: Some(uid),
+            remote_uid: in_drafts.then_some(uid),
             updated_at: 0,
         };
         let id = self.store.insert_draft(&draft)?;
+        // La copie serveur sera remplacée (et supprimée) : ses pièces jointes sont copiées ici d'abord.
+        self.copy_parts_locally(id).await?;
         self.store.get_draft(id)
+    }
+
+    /// Remplace les pièces jointes « partie d'un mail » d'un brouillon par des copies dans `drafts/<id>/`.
+    /// Une partie impossible à télécharger (hors ligne) reste une référence au mail.
+    async fn copy_parts_locally(&self, id: DraftId) -> Result<()> {
+        let mut d = self.store.get_draft(id)?;
+        let dir = self.drafts_dir.join(id.to_string());
+        let mut changed = false;
+        for att in &mut d.attachments {
+            let AttachmentSource::Part { message_id, part_path } = &att.source else { continue };
+            match self.attachment_bytes(*message_id, part_path).await {
+                Ok((_, bytes)) => {
+                    std::fs::create_dir_all(&dir)?;
+                    let dest = unique_path(&dir, &sanitize_filename(&att.filename));
+                    std::fs::write(&dest, &bytes)?;
+                    att.size = bytes.len() as u64;
+                    att.source = AttachmentSource::File { path: dest.to_string_lossy().to_string() };
+                    changed = true;
+                }
+                Err(e) => tracing::warn!(draft = id, "pièce jointe gardée en référence : {e}"),
+            }
+        }
+        if changed {
+            self.store.set_draft_attachments(id, &d.attachments)?;
+        }
+        Ok(())
     }
 
     pub fn get_draft(&self, id: DraftId) -> Result<Draft> {
@@ -367,7 +421,10 @@ impl Core {
 
     pub fn update_draft(&self, input: DraftInput) -> Result<Draft> {
         let d = self.store.update_draft(&input)?;
-        let due = {
+        // Pendant la rédaction, la copie serveur ne repart pas chaque minute avec de grosses pièces jointes
+        // (elle est faite à la fermeture de l'éditeur).
+        let heavy = d.attachments.iter().map(|a| a.size).sum::<u64>() > PERIODIC_UPLOAD_MAX_BYTES;
+        let due = !heavy && {
             let mut map = self.last_upload.lock().unwrap();
             let entry = map.entry(d.id).or_insert_with(std::time::Instant::now);
             if entry.elapsed() >= DRAFT_UPLOAD_EVERY {
@@ -393,8 +450,14 @@ impl Core {
             if !meta.is_file() {
                 continue;
             }
+            if meta.len() > MAX_ATTACHMENT_BYTES {
+                return Err(CoreError::InvalidInput(format!(
+                    "Fichier trop volumineux (100 Mo au plus) : {}",
+                    p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                )));
+            }
             let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "piece-jointe".into());
-            let dest = dir.join(format!("{}-{}", d.attachments.len() + 1, sanitize_filename(&name)));
+            let dest = unique_path(&dir, &sanitize_filename(&name));
             std::fs::copy(&p, &dest)?;
             d.attachments.push(DraftAttachment {
                 mime_type: mime_guess::from_path(&name).first_or_octet_stream().essence_str().to_string(),
@@ -404,6 +467,7 @@ impl Core {
             });
         }
         self.store.set_draft_attachments(id, &d.attachments)?;
+        self.store.mark_draft_edited(id)?;
         self.store.get_draft(id)
     }
 
@@ -419,6 +483,7 @@ impl Core {
             }
         }
         self.store.set_draft_attachments(id, &d.attachments)?;
+        self.store.mark_draft_edited(id)?;
         self.store.get_draft(id)
     }
 
@@ -441,7 +506,8 @@ impl Core {
             return Ok(());
         }
         self.last_upload.lock().unwrap().remove(&id);
-        if self.is_empty_draft(&d)? && d.remote_uid.is_none() {
+        // Jamais modifié (Répondre puis rien) ou vide : rien à garder, ni ici ni sur le serveur.
+        if d.remote_uid.is_none() && (!self.store.draft_edited(id)? || self.is_empty_draft(&d)?) {
             let _ = std::fs::remove_dir_all(self.drafts_dir.join(id.to_string()));
             return self.store.delete_draft(id);
         }
@@ -452,14 +518,21 @@ impl Core {
 
     pub async fn discard_draft(&self, id: DraftId) -> Result<()> {
         let d = self.store.get_draft(id)?;
-        let _ = self.store.cancel_send_op(id);
+        if d.state == DraftState::Sending || (d.state == DraftState::Queued && !self.store.cancel_send_op(id)?) {
+            return Err(CoreError::InvalidInput("ce mail est en cours d'envoi".into()));
+        }
         if let (Some(uid), Some((folder, _))) = (d.remote_uid, self.store.folder_by_role(d.account_id, FolderRole::Drafts)?) {
             self.store.enqueue_op(d.account_id, OpKind::DeleteRemote, serde_json::json!({"folderId": folder, "uid": uid}))?;
             let _ = self.manager.send(d.account_id, WorkerRequest::OpsAvailable).await;
         }
         self.last_upload.lock().unwrap().remove(&id);
         let _ = std::fs::remove_dir_all(self.drafts_dir.join(id.to_string()));
-        self.store.delete_draft(id)
+        self.store.delete_draft(id)?;
+        if matches!(d.state, DraftState::Queued | DraftState::Failed) {
+            // Le bandeau (« Échec de l'envoi… ») le retire de la file.
+            self.events.emit(CoreEvent::OutboxChanged { draft_id: id, state: DraftState::Editing, send_at: None, error: None });
+        }
+        Ok(())
     }
 
     /// Met l'envoi en file, avec le délai d'annulation des réglages.
@@ -478,7 +551,10 @@ impl Core {
         }
         let delay = self.store.settings()?.undo_send_seconds as i64;
         let send_at = crate::store::now_ts() + delay;
-        self.store.set_draft_state(id, DraftState::Queued, None, Some(send_at))?;
+        // Deux clics (ou deux fenêtres) ne peuvent pas mettre deux envois en file.
+        if !self.store.queue_draft(id, send_at)? {
+            return Err(CoreError::InvalidInput("ce mail est déjà en cours d'envoi".into()));
+        }
         self.store.enqueue_op_at(d.account_id, OpKind::Send, serde_json::json!({"draftId": id}), send_at)?;
         self.last_upload.lock().unwrap().remove(&id);
         let _ = self.manager.send(d.account_id, WorkerRequest::OpsAvailable).await;

@@ -274,3 +274,49 @@ impl GreenMail {
         }
     }
 }
+
+/// Faux serveur SMTP : accepte la connexion et l'authentification, puis répond `rcpt_reply` à RCPT TO.
+pub struct FakeSmtp {
+    pub port: u16,
+    _task: tokio::task::JoinHandle<()>,
+}
+
+impl FakeSmtp {
+    pub async fn start(rcpt_reply: &'static str) -> FakeSmtp {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let (r, mut w) = sock.into_split();
+                    let mut lines = TokioBufReader::new(r).lines();
+                    let _ = w.write_all(b"220 fake ESMTP\r\n").await;
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let up = line.to_ascii_uppercase();
+                        let reply = if up.starts_with("EHLO") {
+                            "250-fake\r\n250 AUTH PLAIN LOGIN\r\n".to_string()
+                        } else if up.starts_with("AUTH") {
+                            "235 2.7.0 ok\r\n".into()
+                        } else if up.starts_with("RCPT") {
+                            format!("{rcpt_reply}\r\n")
+                        } else if up.starts_with("QUIT") {
+                            let _ = w.write_all(b"221 bye\r\n").await;
+                            return;
+                        } else {
+                            "250 ok\r\n".into()
+                        };
+                        if w.write_all(reply.as_bytes()).await.is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        FakeSmtp { port, _task: task }
+    }
+
+    pub fn config(&self) -> ServerConfig {
+        ServerConfig { host: "127.0.0.1".into(), port: self.port, tls: TlsMode::Plain }
+    }
+}

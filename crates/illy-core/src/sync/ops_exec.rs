@@ -5,7 +5,7 @@ use crate::error::{CoreError, Result};
 use crate::events::{CoreEvent, EventSink};
 use crate::imap::{select, store_seen, Caps, ImapSession};
 use crate::model::{Account, FolderId};
-use crate::store::{now_ts, OpKind, Store};
+use crate::store::{now_ts, Op, OpKind, Store};
 use std::time::Duration;
 
 /// Délai avant la tentative n° `attempt` (1 = première reprise) : double à chaque fois, plafonné.
@@ -18,7 +18,30 @@ fn is_transient(e: &CoreError) -> bool {
     matches!(e, CoreError::Network(_) | CoreError::Parse(_) | CoreError::Tls(_))
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Actions à exécuter : toutes, ou seulement « lu / non lu » (avant la première relecture des drapeaux).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum OpsScope {
+    All,
+    SeenOnly,
+}
+
+/// Tentatives d'une action (hors envoi) avant de l'abandonner.
+const MAX_OP_ATTEMPTS: u32 = 10;
+
+/// Temps laissé à une action : 2 min, plus le temps d'envoyer ses pièces jointes à 160 kbit/s.
+fn op_budget(store: &Store, op: &Op) -> Duration {
+    let bytes = match op.kind {
+        OpKind::Send | OpKind::AppendDraft => op.payload["draftId"]
+            .as_i64()
+            .and_then(|id| store.get_draft(id).ok())
+            .map(|d| d.attachments.iter().map(|a| a.size).sum::<u64>() + d.body_html.len() as u64)
+            .unwrap_or(0),
+        _ => 0,
+    };
+    // Le MIME (base64) fait 4/3 de la taille ; 20 000 octets/s ≈ 160 kbit/s.
+    Duration::from_secs(120 + bytes * 4 / 3 / 20_000)
+}
+
 pub async fn run_due_ops(
     s: &mut ImapSession,
     caps: &Caps,
@@ -28,22 +51,56 @@ pub async fn run_due_ops(
     password: &str,
     cfg: &WorkerConfig,
 ) -> Result<()> {
+    run_ops(s, caps, store, events, account_info, password, cfg, OpsScope::All).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn run_ops(
+    s: &mut ImapSession,
+    caps: &Caps,
+    store: &Store,
+    events: &dyn EventSink,
+    account_info: &Account,
+    password: &str,
+    cfg: &WorkerConfig,
+    scope: OpsScope,
+) -> Result<()> {
     let account = account_info.id;
     for op in store.due_ops(account, now_ts())? {
-        let r = match op.kind {
-            OpKind::Send => super::send::exec_send(s, caps, store, events, account_info, password, cfg, &op).await,
-            OpKind::SentCopy => super::send::exec_sent_copy(s, store, account_info, cfg, &op).await,
-            OpKind::SetAnswered => super::send::exec_set_answered(s, store, &op).await,
-            OpKind::AppendDraft => super::send::exec_append_draft(s, caps, store, account_info, &op).await,
-            OpKind::DeleteRemote => super::send::exec_delete_remote(s, caps, store, &op).await,
-            OpKind::SetSeen => Ok(()),
+        if scope == OpsScope::SeenOnly && op.kind != OpKind::SetSeen {
+            continue;
+        }
+        let budget = op_budget(store, &op);
+        let run = async {
+            match op.kind {
+                OpKind::Send => super::send::exec_send(s, caps, store, events, account_info, password, cfg, &op).await,
+                OpKind::SentCopy => super::send::exec_sent_copy(s, caps, store, account_info, cfg, &op).await,
+                OpKind::SetAnswered => super::send::exec_set_answered(s, store, &op).await,
+                OpKind::AppendDraft => super::send::exec_append_draft(s, caps, store, account_info, &op).await,
+                OpKind::DeleteRemote => super::send::exec_delete_remote(s, caps, store, &op).await,
+                OpKind::SetSeen => Ok(()),
+            }
+        };
+        let r = match tokio::time::timeout(budget, run).await {
+            Ok(r) => r,
+            Err(_) => {
+                if op.kind == OpKind::Send {
+                    super::send::send_interrupted(store, events, cfg, &op)?;
+                }
+                Err(CoreError::Network("délai dépassé".into()))
+            }
         };
         match r {
             Ok(()) => {}
             Err(e) if is_transient(&e) => {
                 if op.kind != OpKind::Send {
-                    let wait = backoff(op.attempts + 1, cfg).as_secs() as i64;
-                    store.op_retry(op.id, now_ts() + wait.max(1), &e.to_string())?;
+                    if op.attempts + 1 >= MAX_OP_ATTEMPTS && op.kind != OpKind::SetSeen {
+                        tracing::warn!(op = op.id, kind = ?op.kind, "action abandonnée après {MAX_OP_ATTEMPTS} essais : {e}");
+                        store.op_done(op.id)?;
+                    } else {
+                        let wait = backoff(op.attempts + 1, cfg).as_secs() as i64;
+                        store.op_retry(op.id, now_ts() + wait.max(1), &e.to_string())?;
+                    }
                 }
                 return Err(e);
             }

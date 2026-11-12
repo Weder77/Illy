@@ -1,4 +1,4 @@
-//! SMTP : vérification des identifiants (l'envoi arrive au jalon 4).
+//! SMTP : vérification des identifiants et envoi.
 
 use crate::error::{CoreError, Result};
 use crate::model::{ServerConfig, TlsMode};
@@ -6,14 +6,27 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, Tokio1Executor};
 use std::time::Duration;
 
+/// Texte de la réponse du serveur, sans le préfixe de lettre (« permanent error (550): »).
+fn server_text(e: &lettre::transport::smtp::Error) -> String {
+    let text = e.to_string();
+    let text = text.split_once("): ").map(|(_, t)| t.to_string()).unwrap_or(text);
+    match e.status() {
+        Some(code) => format!("{code} {}", text.trim()),
+        None => text.trim().to_string(),
+    }
+}
+
 fn smtp_err(e: lettre::transport::smtp::Error) -> CoreError {
     let code = e.status().map(|c| c.to_string()).unwrap_or_default();
     if e.is_tls() {
         CoreError::Tls(e.to_string())
-    } else if code.starts_with("535") || code.starts_with("534") || code.starts_with("530") || e.is_permanent() {
-        CoreError::Auth(e.to_string())
+    } else if code.starts_with("535") || code.starts_with("534") || code.starts_with("530") {
+        CoreError::Auth(server_text(&e))
+    } else if e.is_permanent() {
+        // Destinataire inconnu, mail trop gros, quota, spam… : le serveur ne l'acceptera pas.
+        CoreError::Rejected(server_text(&e))
     } else if e.is_transient() || e.is_response() {
-        CoreError::Smtp(e.to_string())
+        CoreError::Smtp(server_text(&e))
     } else {
         CoreError::Network(e.to_string())
     }

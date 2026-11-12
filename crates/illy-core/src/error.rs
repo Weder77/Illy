@@ -16,8 +16,12 @@ pub enum CoreError {
     Imap(String),
     #[error("réponse illisible du serveur : {0}")]
     Parse(String),
+    /// Refus temporaire du serveur d'envoi (4xx) : à réessayer plus tard.
     #[error("erreur SMTP : {0}")]
     Smtp(String),
+    /// Refus définitif du serveur d'envoi (5xx autre qu'un mot de passe refusé).
+    #[error("refusé par le serveur d'envoi : {0}")]
+    Rejected(String),
     #[error("introuvable")]
     NotFound,
     #[error("{0}")]
@@ -40,6 +44,7 @@ impl CoreError {
             CoreError::Imap(_) => "imap",
             CoreError::Parse(_) => "parse",
             CoreError::Smtp(_) => "smtp",
+            CoreError::Rejected(_) => "rejected",
             CoreError::NotFound => "not_found",
             CoreError::InvalidInput(_) => "invalid_input",
             CoreError::Secret(_) => "secret",

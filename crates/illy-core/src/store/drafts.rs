@@ -63,7 +63,10 @@ impl Store {
     pub fn update_draft(&self, d: &DraftInput) -> Result<Draft> {
         let n = self.with(|c| {
             Ok(c.execute(
-                "UPDATE drafts SET account_id = ?1, to_json = ?2, cc_json = ?3, bcc_json = ?4, subject = ?5, body_html = ?6, \
+                // `edited` passe à 1 dès qu'un champ change (les valeurs de droite sont celles d'avant).
+                "UPDATE drafts SET edited = CASE WHEN account_id IS NOT ?1 OR to_json IS NOT ?2 OR cc_json IS NOT ?3 \
+                 OR bcc_json IS NOT ?4 OR subject IS NOT ?5 OR body_html IS NOT ?6 THEN 1 ELSE edited END, \
+                 account_id = ?1, to_json = ?2, cc_json = ?3, bcc_json = ?4, subject = ?5, body_html = ?6, \
                  updated_at = ?7 WHERE id = ?8 AND state IN ('editing', 'failed')",
                 params![
                     d.account_id,
@@ -94,6 +97,33 @@ impl Store {
         })
     }
 
+    /// Passe un brouillon modifiable en file d'envoi, en une seule écriture ; `false` s'il ne l'était plus.
+    pub fn queue_draft(&self, id: DraftId, send_at: i64) -> Result<bool> {
+        self.with(|c| {
+            Ok(c.execute(
+                "UPDATE drafts SET state = 'queued', last_error = NULL, send_at = ?1 WHERE id = ?2 AND state IN ('editing', 'failed')",
+                params![send_at, id],
+            )? > 0)
+        })
+    }
+
+    /// L'utilisateur a modifié ce brouillon (un brouillon jamais modifié n'est pas gardé à la fermeture).
+    pub fn mark_draft_edited(&self, id: DraftId) -> Result<()> {
+        self.with(|c| {
+            c.execute("UPDATE drafts SET edited = 1 WHERE id = ?1", [id])?;
+            Ok(())
+        })
+    }
+
+    pub fn draft_edited(&self, id: DraftId) -> Result<bool> {
+        self.with_read(|c| {
+            c.query_row("SELECT edited FROM drafts WHERE id = ?1", [id], |r| r.get::<_, i64>(0))
+                .optional()?
+                .map(|v| v != 0)
+                .ok_or(CoreError::NotFound)
+        })
+    }
+
     pub fn set_draft_attachments(&self, id: DraftId, atts: &[DraftAttachment]) -> Result<()> {
         self.with(|c| {
             c.execute(
@@ -119,6 +149,18 @@ impl Store {
                      ORDER BY updated_at DESC, id DESC LIMIT 1"
                 ),
                 [message_id],
+                row_to_draft,
+            )
+            .optional()?)
+        })
+    }
+
+    /// Brouillon local dont la copie serveur a cet UID (dans le dossier Brouillons du compte).
+    pub fn draft_by_remote_uid(&self, account: AccountId, uid: u32) -> Result<Option<Draft>> {
+        self.with_read(|c| {
+            Ok(c.query_row(
+                &format!("SELECT {COLS} FROM drafts WHERE account_id = ?1 AND remote_uid = ?2 ORDER BY id DESC LIMIT 1"),
+                params![account, uid],
                 row_to_draft,
             )
             .optional()?)
@@ -173,6 +215,23 @@ mod tests {
             remote_uid: None,
             updated_at: 0,
         }
+    }
+
+    #[test]
+    fn edited_flag_follows_real_changes() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let mut d = draft(a, None);
+        d.subject = "Re: x".into();
+        let id = s.insert_draft(&d).unwrap();
+        assert!(!s.draft_edited(id).unwrap());
+        let same = DraftInput { id, account_id: a, to: d.to.clone(), cc: d.cc.clone(), bcc: d.bcc.clone(), subject: d.subject.clone(), body_html: d.body_html.clone() };
+        s.update_draft(&same).unwrap();
+        assert!(!s.draft_edited(id).unwrap(), "saving unchanged content is not an edit");
+        s.update_draft(&DraftInput { subject: "Re: x !".into(), ..same.clone() }).unwrap();
+        assert!(s.draft_edited(id).unwrap());
+        s.update_draft(&same).unwrap();
+        assert!(s.draft_edited(id).unwrap(), "stays edited");
     }
 
     #[test]

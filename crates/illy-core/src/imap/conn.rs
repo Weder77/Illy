@@ -20,6 +20,8 @@ pub struct Caps {
     pub r#move: bool,
     pub special_use: bool,
     pub uidplus: bool,
+    /// Extensions Gmail (X-GM-EXT-1) : recherche `X-GM-RAW`.
+    pub gmail: bool,
 }
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -159,6 +161,7 @@ async fn connect_inner(cfg: &ServerConfig, user: &str, password: &str) -> Result
         r#move: c.has_str("MOVE"),
         special_use: c.has_str("SPECIAL-USE"),
         uidplus: c.has_str("UIDPLUS"),
+        gmail: c.has_str("X-GM-EXT-1"),
     };
     Ok((session, caps))
 }

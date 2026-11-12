@@ -137,6 +137,23 @@ pub async fn search_header(s: &mut ImapSession, field: &str, value: &str) -> Res
     Ok(v)
 }
 
+/// UIDs du dossier sélectionné dont le Message-ID est `message_id` (avec ou sans chevrons).
+/// Gmail ne cherche pas toujours dans les en-têtes : on passe alors par sa recherche `rfc822msgid:`.
+pub async fn search_message_id(s: &mut ImapSession, caps: &super::Caps, message_id: &str) -> Result<Vec<u32>> {
+    let id = message_id.trim().trim_start_matches('<').trim_end_matches('>');
+    if id.is_empty() {
+        return Ok(vec![]);
+    }
+    let found = search_header(s, "Message-ID", id).await?;
+    if !found.is_empty() || !caps.gmail {
+        return Ok(found);
+    }
+    let q = format!("rfc822msgid:{id}").replace('\\', "\\\\").replace('"', "\\\"");
+    let mut v: Vec<u32> = s.uid_search(format!("X-GM-RAW \"{q}\"")).await.map_err(imap_err)?.into_iter().collect();
+    v.sort_unstable();
+    Ok(v)
+}
+
 pub async fn add_flag(s: &mut ImapSession, uid: u32, flag: &str) -> Result<()> {
     let _: Vec<_> = s
         .uid_store(uid.to_string(), format!("+FLAGS.SILENT ({flag})"))

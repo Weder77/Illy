@@ -72,6 +72,12 @@ fn extract_inline_images(html: &str) -> (String, Vec<(String, String, Vec<u8>)>)
     (out.into_owned(), parts)
 }
 
+/// Identifiant de message au format des en-têtes : `<id>` (les identifiants stockés n'ont pas de chevrons).
+fn msg_id(raw: &str) -> Option<String> {
+    let id = raw.trim().trim_start_matches('<').trim_end_matches('>').trim();
+    (!id.is_empty() && !id.contains(char::is_whitespace)).then(|| format!("<{id}>"))
+}
+
 pub fn build_message(
     from: &Address,
     draft: &Draft,
@@ -100,10 +106,10 @@ pub fn build_message(
         envelope_to.push(mailbox(a)?.email.to_string());
     }
     if let Some(r) = reply {
-        if let Some(id) = &r.message_id {
+        if let Some(id) = r.message_id.as_deref().and_then(msg_id) {
             b = b.in_reply_to(id.clone());
-            let mut refs = r.references.clone();
-            refs.push(id.clone());
+            let mut refs: Vec<String> = r.references.iter().filter_map(|x| msg_id(x)).collect();
+            refs.push(id);
             b = b.references(refs.join(" "));
         }
     }
@@ -122,7 +128,9 @@ pub fn build_message(
         .map_err(|e| CoreError::InvalidInput(format!("enveloppe invalide : {e}")))?;
     b = b.envelope(envelope);
 
-    let (html, inline) = extract_inline_images(&draft.body_html);
+    // Les images distantes d'un mail cité ou transféré sont bloquées à l'écran dans Illy, mais
+    // le destinataire doit les recevoir comme dans l'original (billets avec QR code, etc.).
+    let (html, inline) = extract_inline_images(&crate::mime::unblock_images(&draft.body_html));
     let text = html_to_text(&html);
     let html_part = SinglePart::html(html);
     let text_part = SinglePart::plain(text);
@@ -251,6 +259,36 @@ mod tests {
         let raw = String::from_utf8_lossy(&b.raw_for_storage).to_string();
         assert!(raw.contains("In-Reply-To: <m1@ex.fr>"), "{raw}");
         assert!(raw.contains("References: <r0@ex.fr> <m1@ex.fr>"), "{raw}");
+    }
+
+    #[test]
+    fn quoted_remote_images_are_restored_for_the_recipient() {
+        let body = r#"<p>Voir ci-dessous</p><div class="illy-forward"><img data-blocked-src="https://ex.fr/qr.png" alt="QR"></div>"#;
+        let b = build_message(&me(), &draft(body), None, &[], None).unwrap();
+        let parsed = mail_parser::MessageParser::default().parse(&b.raw_for_storage).unwrap();
+        let html = parsed.body_html(0).unwrap().to_string();
+        assert!(!html.contains("data-blocked-src"), "{html}");
+        assert!(html.contains(r#"src="https://ex.fr/qr.png""#), "{html}");
+    }
+
+    #[test]
+    fn reply_headers_add_missing_angle_brackets() {
+        // mail-parser rend les Message-ID sans chevrons : ils doivent revenir dans les en-têtes envoyés.
+        let src = ReplySource {
+            from: a("", "bob@ex.fr"),
+            to: vec![],
+            cc: vec![],
+            reply_to: vec![],
+            subject: "x".into(),
+            date: 0,
+            message_id: Some("q1@localhost".into()),
+            references: vec!["root@localhost".into(), " ".into()],
+            account_id: 1,
+        };
+        let b = build_message(&me(), &draft("<p>x</p>"), Some(&src), &[], None).unwrap();
+        let raw = String::from_utf8_lossy(&b.raw_for_storage).to_string();
+        assert!(raw.contains("In-Reply-To: <q1@localhost>\r\n"), "{raw}");
+        assert!(raw.contains("References: <root@localhost> <q1@localhost>\r\n"), "{raw}");
     }
 
     #[test]

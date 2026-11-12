@@ -4,7 +4,7 @@ use super::{backoff, fetch_attachment, WorkerConfig};
 use crate::compose::mime::{build_message, OutgoingFile};
 use crate::error::{CoreError, Result};
 use crate::events::{CoreEvent, EventSink};
-use crate::imap::{add_flag, append, delete_uid, search_header, select, Caps, ImapSession};
+use crate::imap::{add_flag, append, delete_uid, search_message_id, select, Caps, ImapSession};
 use crate::model::*;
 use crate::store::{now_ts, Op, OpKind, Store};
 
@@ -29,7 +29,7 @@ async fn collect_files(
     s: &mut ImapSession,
     store: &Store,
     d: &Draft,
-    include_parts: bool,
+    include_part: impl Fn(MessageId) -> bool,
 ) -> Result<std::result::Result<Vec<OutgoingFile>, String>> {
     let mut files = Vec::new();
     for att in &d.attachments {
@@ -39,7 +39,7 @@ async fn collect_files(
                 Err(_) => return Ok(Err(format!("Pièce jointe introuvable : {}", att.filename))),
             },
             AttachmentSource::Part { message_id, part_path } => {
-                if !include_parts {
+                if !include_part(*message_id) {
                     continue;
                 }
                 match fetch_attachment(s, store, *message_id, part_path).await {
@@ -61,6 +61,12 @@ fn reply_source(store: &Store, d: &Draft) -> Option<crate::store::ReplySource> {
     }
 }
 
+/// Essais de la copie dans Envoyés avant d'y renoncer (et de nettoyer le brouillon envoyé).
+const SENT_COPY_ATTEMPTS: u32 = 6;
+
+/// Refus temporaires (4xx) acceptés avant d'abandonner l'envoi.
+const SMTP_TEMPORARY_RETRIES: u32 = 8;
+
 /// Nombre de nouvelles tentatives quand le dossier visé (Envoyés, Brouillons) n'est pas encore connu.
 const MISSING_FOLDER_RETRIES: u32 = 5;
 
@@ -71,6 +77,19 @@ fn retry_until_folder_known(store: &Store, op: &Op) -> Result<()> {
         return store.op_done(op.id);
     }
     store.op_retry(op.id, now_ts() + 30, "dossier pas encore connu")
+}
+
+/// Envoi interrompu (délai dépassé) : libère l'action et remet le brouillon en file.
+pub(crate) fn send_interrupted(store: &Store, events: &dyn EventSink, cfg: &WorkerConfig, op: &Op) -> Result<()> {
+    let msg = "envoi interrompu (connexion trop lente)";
+    store.op_retry(op.id, now_ts() + backoff(op.attempts + 1, cfg).as_secs() as i64, msg)?;
+    if let Ok(d) = store.get_draft(draft_id(op)) {
+        if d.state == DraftState::Sending {
+            store.set_draft_state(d.id, DraftState::Queued, Some(msg), d.send_at)?;
+            emit(events, &d, DraftState::Queued, Some(msg.into()));
+        }
+    }
+    Ok(())
 }
 
 fn fail(store: &Store, events: &dyn EventSink, op: &Op, d: &Draft, msg: String) -> Result<()> {
@@ -95,14 +114,15 @@ pub(crate) async fn exec_send(
         return Ok(());
     }
     let d = match store.get_draft(draft_id(op)) {
-        Ok(d) => d,
-        Err(CoreError::NotFound) => return store.op_done(op.id),
+        // `Sending` : reprise après un plantage pendant l'envoi (verrou expiré).
+        Ok(d) if matches!(d.state, DraftState::Queued | DraftState::Sending) => d,
+        Ok(_) | Err(CoreError::NotFound) => return store.op_done(op.id),
         Err(e) => return Err(e),
     };
     store.set_draft_state(d.id, DraftState::Sending, None, d.send_at)?;
     emit(events, &d, DraftState::Sending, None);
 
-    let files = match collect_files(s, store, &d, true).await {
+    let files = match collect_files(s, store, &d, |_| true).await {
         Ok(Ok(f)) => f,
         Ok(Err(msg)) => return fail(store, events, op, &d, msg),
         Err(e) => {
@@ -155,20 +175,31 @@ pub(crate) async fn exec_send(
             events.emit(CoreEvent::AccountStatus { account_id: account.id, status: AccountStatus::AuthError, error: Some(m) });
             fail(store, events, op, &d, msg)
         }
-        Err(e) if transient(&e) => {
-            // Le serveur d'envoi est injoignable : on réessaie plus tard (la session IMAP reste valable).
+        Err(CoreError::Smtp(m)) if op.attempts + 1 >= SMTP_TEMPORARY_RETRIES => {
+            fail(store, events, op, &d, format!("Le serveur d'envoi refuse ce mail pour l'instant : {m}"))
+        }
+        Err(e) if transient(&e) || matches!(e, CoreError::Smtp(_)) => {
+            // Serveur injoignable ou refus temporaire (4xx) : on réessaie plus tard (la session IMAP reste valable).
             store.op_retry(op.id, now_ts() + backoff(op.attempts + 1, cfg).as_secs() as i64, &e.to_string())?;
             store.set_draft_state(d.id, DraftState::Queued, Some(&e.to_string()), d.send_at)?;
             emit(events, &d, DraftState::Queued, Some(e.to_string()));
             Ok(())
         }
+        Err(CoreError::Rejected(m)) => fail(store, events, op, &d, format!("Refusé par le serveur d'envoi : {m}")),
         Err(e) => fail(store, events, op, &d, e.to_string()),
     }
 }
 
-pub(crate) async fn exec_sent_copy(s: &mut ImapSession, store: &Store, account: &Account, cfg: &WorkerConfig, op: &Op) -> Result<()> {
+pub(crate) async fn exec_sent_copy(
+    s: &mut ImapSession,
+    caps: &Caps,
+    store: &Store,
+    account: &Account,
+    cfg: &WorkerConfig,
+    op: &Op,
+) -> Result<()> {
     let id = draft_id(op);
-    let message_id = op.payload["messageId"].as_str().unwrap_or("").trim_matches(['<', '>']).to_string();
+    let message_id = op.payload["messageId"].as_str().unwrap_or("").to_string();
     let dir = cfg.drafts_dir().join(id.to_string());
     let raw = std::fs::read(dir.join("sent.eml")).ok();
     let sent = store.folder_by_role(account.id, FolderRole::Sent)?;
@@ -176,9 +207,19 @@ pub(crate) async fn exec_sent_copy(s: &mut ImapSession, store: &Store, account: 
         return retry_until_folder_known(store, op);
     }
     if let (Some(raw), Some((_, path))) = (raw, sent) {
-        select(s, &path, false).await?;
-        if search_header(s, "Message-ID", &message_id).await?.is_empty() {
-            append(s, &path, "(\\Seen)", &raw).await?;
+        let r = async {
+            select(s, &path, false).await?;
+            if search_message_id(s, caps, &message_id).await?.is_empty() {
+                append(s, &path, "(\\Seen)", &raw).await?;
+            }
+            Ok(())
+        }
+        .await;
+        match r {
+            Ok(()) => {}
+            // Réseau : on réessaiera, sauf après de nombreux essais (le mail est parti, seule la copie manque).
+            Err(e) if transient(&e) && op.attempts + 1 < SENT_COPY_ATTEMPTS => return Err(e),
+            Err(e) => tracing::warn!(draft = id, "copie dans Envoyés abandonnée : {e}"),
         }
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -211,7 +252,18 @@ pub(crate) async fn exec_append_draft(
     let Some((_, path)) = store.folder_by_role(account.id, FolderRole::Drafts)? else {
         return retry_until_folder_known(store, op);
     };
-    let files = collect_files(s, store, &d, false).await?.unwrap_or_default();
+    // Les pièces d'un autre mail (transfert) ne sont pas recopiées à chaque minute de rédaction ;
+    // celles d'un mail du dossier Brouillons le sont, car l'ancienne copie va être supprimée.
+    let drafts_folder = store.folder_by_role(account.id, FolderRole::Drafts)?.map(|(f, _)| f);
+    let in_drafts = |m: MessageId| store.message_location(m).is_ok_and(|(_, f, _)| Some(f) == drafts_folder);
+    let files = match collect_files(s, store, &d, in_drafts).await? {
+        Ok(f) => f,
+        Err(msg) => {
+            // Ne jamais remplacer une copie serveur par une version qui perdrait des pièces jointes.
+            tracing::warn!(draft = d.id, "brouillon non copié sur le serveur : {msg}");
+            return store.op_done(op.id);
+        }
+    };
     let reply = reply_source(store, &d);
     let built = match build_message(&sender(account), &d, reply.as_ref(), &files, Some(d.id)) {
         Ok(b) => b,
@@ -225,7 +277,8 @@ pub(crate) async fn exec_append_draft(
     if let Some(old) = d.remote_uid {
         let _ = delete_uid(s, old, caps).await;
     }
-    let uid = search_header(s, "X-Illy-Draft", &d.id.to_string()).await?.into_iter().max();
+    // Message-ID neuf à chaque copie : la recherche ne peut pas confondre deux brouillons.
+    let uid = search_message_id(s, caps, &built.message_id).await?.into_iter().max();
     store.set_draft_remote_uid(d.id, uid)?;
     store.op_done(op.id)
 }

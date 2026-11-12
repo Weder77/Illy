@@ -4,6 +4,9 @@ use crate::model::AccountId;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 
+/// Durée après laquelle une action réservée (`started_at`) est considérée comme abandonnée (plantage).
+pub const OP_LOCK_SECS: i64 = 600;
+
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum OpKind {
@@ -53,8 +56,8 @@ impl Store {
         let now = now_ts();
         self.with(|c| {
             Ok(c.execute(
-                "UPDATE ops SET started_at = ?1 WHERE id = ?2 AND (started_at IS NULL OR started_at < ?1 - 600)",
-                params![now, id],
+                "UPDATE ops SET started_at = ?1 WHERE id = ?2 AND (started_at IS NULL OR started_at < ?1 - ?3)",
+                params![now, id, OP_LOCK_SECS],
             )? > 0)
         })
     }
@@ -108,19 +111,42 @@ impl Store {
     }
 
     /// Échéance de la prochaine action en attente d'un compte.
+    /// Une action en cours (`started_at`) n'est pas due avant l'expiration de son verrou.
     pub fn next_op_at(&self, account: AccountId) -> Result<Option<i64>> {
-        self.with(|c| Ok(c.query_row("SELECT MIN(next_attempt_at) FROM ops WHERE account_id = ?1", [account], |r| r.get(0))?))
+        let stale = now_ts() - OP_LOCK_SECS;
+        self.with(|c| {
+            Ok(c.query_row(
+                "SELECT MIN(CASE WHEN started_at IS NOT NULL AND started_at >= ?2 THEN started_at + ?3 ELSE next_attempt_at END) \
+                 FROM ops WHERE account_id = ?1",
+                params![account, stale, OP_LOCK_SECS],
+                |r| r.get(0),
+            )?)
+        })
     }
 
     pub fn pending_ops_count(&self, account: AccountId) -> Result<u32> {
         self.with(|c| Ok(c.query_row("SELECT COUNT(*) FROM ops WHERE account_id = ?1", [account], |r| r.get(0))?))
     }
 
-    /// Avance l'échéance de toutes les actions d'un compte (retour du réseau).
+    /// Retour du réseau : les actions en échec sont réessayées tout de suite.
+    /// Un envoi jamais tenté garde son délai d'annulation, et la copie dans Envoyés ses 15 s.
     pub fn ops_due_now(&self, account: AccountId) -> Result<()> {
         let now = now_ts();
         self.with(|c| {
-            c.execute("UPDATE ops SET next_attempt_at = ?1 WHERE account_id = ?2 AND next_attempt_at > ?1", params![now, account])?;
+            c.execute(
+                "UPDATE ops SET next_attempt_at = ?1 WHERE account_id = ?2 AND next_attempt_at > ?1 \
+                 AND NOT (kind IN ('send', 'sent_copy') AND attempts = 0)",
+                params![now, account],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Rend toutes les actions d'un compte dues immédiatement, délais compris (tests).
+    #[doc(hidden)]
+    pub fn force_ops_due(&self, account: AccountId) -> Result<()> {
+        self.with(|c| {
+            c.execute("UPDATE ops SET next_attempt_at = ?1 WHERE account_id = ?2", params![now_ts(), account])?;
             Ok(())
         })
     }
@@ -140,6 +166,34 @@ mod tests {
         s.op_retry(id, now_ts(), "réseau").unwrap();
         assert!(s.start_op(id).unwrap(), "a retried op can start again");
         assert!(!s.start_op(999).unwrap());
+    }
+
+    #[test]
+    fn reconnect_keeps_the_undo_window() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let now = now_ts();
+        let send = s.enqueue_op_at(a, OpKind::Send, serde_json::json!({"draftId": 1}), now + 30).unwrap();
+        let copy = s.enqueue_op_at(a, OpKind::SentCopy, serde_json::json!({"draftId": 2}), now + 15).unwrap();
+        let retry = s.enqueue_op(a, OpKind::Send, serde_json::json!({"draftId": 3})).unwrap();
+        s.op_retry(retry, now + 300, "réseau").unwrap();
+        let seen = s.enqueue_op(a, OpKind::SetSeen, serde_json::json!({"folderId": 1, "uid": 2, "seen": true})).unwrap();
+        s.op_retry(seen, now + 300, "réseau").unwrap();
+        s.ops_due_now(a).unwrap();
+        let due: Vec<i64> = s.due_ops(a, now_ts()).unwrap().into_iter().map(|o| o.id).collect();
+        assert!(!due.contains(&send), "an untried send keeps its undo window");
+        assert!(!due.contains(&copy), "the sent copy keeps its 15 s delay");
+        assert!(due.contains(&retry) && due.contains(&seen), "failed ops are retried at once");
+    }
+
+    #[test]
+    fn locked_op_does_not_wake_the_worker_in_a_loop() {
+        let s = Store::open_in_memory().unwrap();
+        let a = s.insert_account(&new_account("a@x.fr")).unwrap().id;
+        let id = s.enqueue_op(a, OpKind::Send, serde_json::json!({"draftId": 1})).unwrap();
+        assert!(s.start_op(id).unwrap());
+        let next = s.next_op_at(a).unwrap().unwrap();
+        assert!(next >= now_ts() + 590, "a running send is not due again before its lock expires ({next})");
     }
 
     #[test]

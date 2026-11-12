@@ -1,6 +1,6 @@
 //! Worker d'un compte : connexion, synchro, IDLE, priorités, file d'actions.
 
-use super::{backfill_step, backoff, fetch_attachment, fetch_body, run_due_ops, sync_folder, FolderBacklog, WorkerConfig};
+use super::{backfill_step, backoff, fetch_attachment, fetch_body, run_ops, sync_folder, FolderBacklog, OpsScope, WorkerConfig};
 use crate::error::{CoreError, Result};
 use crate::events::{CoreEvent, EventSink};
 use crate::imap::{connect, imap_err, list_folders, select, Caps, ImapSession};
@@ -359,9 +359,11 @@ async fn connected(
     ctx.store.upsert_folders(ctx.account, &folders)?;
     ctx.events.emit(CoreEvent::FoldersChanged { account_id: ctx.account });
 
-    // Actions faites hors ligne : envoyées avant toute relecture des drapeaux du serveur.
+    // « Lu » hors ligne : envoyé avant toute relecture des drapeaux du serveur. Les autres actions
+    // (envois, brouillons, parfois longues) attendent la fin du premier tour de synchro.
+    // Chaque action a son propre délai (selon sa taille) : pas de délai global ici.
     ctx.store.ops_due_now(ctx.account)?;
-    timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
+    run_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg, OpsScope::SeenOnly).await?;
     let all = ctx.store.syncable_folders(ctx.account)?;
     let inbox = all.iter().find(|f| f.2 == FolderRole::Inbox).map(|f| (f.0, f.1.clone()));
     // Les dossiers disparus (renommés, supprimés ailleurs) ne gardent ni historique en attente ni mode sûr.
@@ -389,7 +391,7 @@ async fn connected(
         // 1. Demandes de l'utilisateur.
         drain_requests(ctx, st, rx, &mut s, &caps, None).await?;
         // 2. Actions en attente.
-        timed(run_due_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg)).await?;
+        run_ops(&mut s, &caps, &ctx.store, ctx.events.as_ref(), account, password, &ctx.cfg, OpsScope::All).await?;
         // 3. Signaux et minuteries.
         while let Ok(msg) = idle_rx.try_recv() {
             match msg {
