@@ -90,7 +90,13 @@ impl Store {
                 ))?;
                 for h in items {
                     let p = &h.headers;
-                    let date = p.date.filter(|d| *d > 0).unwrap_or(h.internal_date);
+                    // Date annoncée par l'expéditeur, sauf si elle est dans le futur par rapport à
+                    // l'arrivée (spam qui resterait collé en haut de la liste).
+                    let date = match p.date.filter(|d| *d > 0) {
+                        Some(d) if h.internal_date > 0 && d > h.internal_date + 86_400 => h.internal_date,
+                        Some(d) => d,
+                        None => h.internal_date,
+                    };
                     let has_att = h.parts.iter().any(|x| x.kind == PartKind::Attachment);
                     let n = ins.execute(params![
                         account,
@@ -507,6 +513,16 @@ pub(crate) mod tests {
         h.internal_date = 42;
         s.upsert_headers(a, f[0], &[h]).unwrap();
         assert_eq!(s.list_messages(ListScope::Folder(f[0]), 0, 1).unwrap()[0].date, 42);
+    }
+
+    #[test]
+    fn future_dated_mail_uses_arrival_date() {
+        let s = Store::open_in_memory().unwrap();
+        let (a, f) = setup(&s, "a@x.fr", &[("INBOX", FolderRole::Inbox)]);
+        let mut h = header(1, 4_000_000_000, "spam@x");
+        h.internal_date = 1_800_000_000;
+        s.upsert_headers(a, f[0], &[h]).unwrap();
+        assert_eq!(s.list_messages(ListScope::Folder(f[0]), 0, 1).unwrap()[0].date, 1_800_000_000);
     }
 
     #[test]

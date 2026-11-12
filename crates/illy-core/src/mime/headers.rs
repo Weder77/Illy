@@ -22,6 +22,14 @@ fn addr(name: Option<&str>, email: Option<&str>) -> Address {
 
 /// Analyse un bloc d'en-têtes ; ne échoue jamais (champs absents → vides).
 pub fn parse_header_block(raw: &[u8]) -> ParsedHeaders {
+    // En-têtes 8 bits bruts (vieux logiciels) : s'ils ne sont pas de l'UTF-8, c'est presque toujours du windows-1252.
+    let converted;
+    let raw = if std::str::from_utf8(raw).is_err() {
+        converted = encoding_rs::WINDOWS_1252.decode(raw).0.into_owned();
+        converted.as_bytes()
+    } else {
+        raw
+    };
     let Some(msg) = MessageParser::default().parse_headers(raw) else {
         return ParsedHeaders::default();
     };
@@ -73,6 +81,13 @@ mod tests {
         assert_eq!(h.message_id.as_deref(), Some("abc@exemple.fr"));
         assert_eq!(h.in_reply_to.as_deref(), Some("prev@exemple.fr"));
         assert_eq!(h.references, vec!["root@exemple.fr".to_string(), "prev@exemple.fr".to_string()]);
+    }
+
+    #[test]
+    fn raw_8bit_latin1_header_keeps_accents() {
+        let h = parse_header_block(b"From: \xc9lodie <e@x.fr>\r\nSubject: R\xe9union \xe0 14h\r\n\r\n");
+        assert_eq!(h.subject, "Réunion à 14h");
+        assert_eq!(h.from.name.as_deref(), Some("Élodie"));
     }
 
     #[test]

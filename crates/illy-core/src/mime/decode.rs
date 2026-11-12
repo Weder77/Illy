@@ -23,7 +23,16 @@ pub fn decode_part(mime_header: &[u8], body: &[u8]) -> Decoded {
     };
     let part = msg.root_part();
     let is_text = part.content_type().map(|c| c.ctype().eq_ignore_ascii_case("text")).unwrap_or(true);
+    let has_charset = part.content_type().and_then(|c| c.attribute("charset")).is_some();
     if is_text {
+        if !has_charset {
+            // Sans charset déclaré : UTF-8 si c'est valide, sinon windows-1252 (accents des vieux mails).
+            let bytes = part.decoded();
+            return Decoded::Text(match std::str::from_utf8(&bytes) {
+                Ok(t) => t.to_string(),
+                Err(_) => encoding_rs::WINDOWS_1252.decode(&bytes).0.into_owned(),
+            });
+        }
         if let Some(t) = part.text() {
             return Decoded::Text(t.into_owned());
         }
@@ -75,6 +84,12 @@ mod tests {
             b"caf=E9",
         );
         assert_eq!(d, Decoded::Text("café".into()));
+    }
+
+    #[test]
+    fn text_without_charset_falls_back_to_windows_1252() {
+        let d = decode_part(b"Content-Type: text/plain\r\nContent-Transfer-Encoding: 8bit\r\n", b"caf\xe9 cr\xe8me");
+        assert_eq!(d, Decoded::Text("café crème".into()));
     }
 
     #[test]
