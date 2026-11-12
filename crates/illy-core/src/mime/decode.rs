@@ -31,6 +31,18 @@ pub fn decode_part(mime_header: &[u8], body: &[u8]) -> Decoded {
     Decoded::Bytes(part.decoded().into_owned())
 }
 
+/// En-tête MIME minimal reconstruit depuis la BODYSTRUCTURE (évite `BODY[x.MIME]`,
+/// mal géré par certains serveurs).
+pub fn synth_mime_header(p: &crate::mime::PartInfo) -> Vec<u8> {
+    let clean = |s: &str| s.replace(['\r', '\n', '"'], "");
+    let mut h = format!("Content-Type: {}", clean(&p.mime_type));
+    if let Some(cs) = &p.charset {
+        h.push_str(&format!("; charset=\"{}\"", clean(cs)));
+    }
+    h.push_str(&format!("\r\nContent-Transfer-Encoding: {}\r\n\r\n", clean(&p.encoding)));
+    h.into_bytes()
+}
+
 /// Extrait de 200 caractères maximum, espaces regroupés.
 pub fn snippet_from(text: &str) -> String {
     let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -75,6 +87,21 @@ mod tests {
     fn decode_html_utf8() {
         let d = decode_part(b"Content-Type: text/html; charset=utf-8\r\n", "<p>été</p>".as_bytes());
         assert_eq!(d, Decoded::Text("<p>été</p>".into()));
+    }
+
+    #[test]
+    fn synth_header_decodes_like_server_header() {
+        let p = crate::mime::PartInfo {
+            part_path: "1".into(),
+            mime_type: "text/plain".into(),
+            filename: None,
+            size: 6,
+            content_id: None,
+            encoding: "quoted-printable".into(),
+            charset: Some("windows-1252".into()),
+            kind: crate::mime::PartKind::BodyText,
+        };
+        assert_eq!(decode_part(&synth_mime_header(&p), b"caf=E9"), Decoded::Text("caf\u{e9}".into()));
     }
 
     #[test]

@@ -1,0 +1,129 @@
+use super::conn::{imap_err, ImapSession};
+use crate::error::{CoreError, Result};
+use crate::mime::{flatten_structure, parse_header_block};
+use crate::store::NewHeader;
+use async_imap::types::Flag;
+use futures::TryStreamExt;
+use imap_proto::SectionPath;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Selected {
+    pub uidvalidity: u32,
+    pub uidnext: Option<u32>,
+    pub highest_modseq: Option<u64>,
+    pub exists: u32,
+}
+
+/// Compacte une liste d'UID en ensemble IMAP (`1:3,7,9:10`).
+pub fn uid_set(uids: &[u32]) -> String {
+    let mut v = uids.to_vec();
+    v.sort_unstable();
+    v.dedup();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < v.len() {
+        let start = v[i];
+        let mut end = start;
+        while i + 1 < v.len() && v[i + 1] == end + 1 {
+            i += 1;
+            end = v[i];
+        }
+        out.push(if start == end { start.to_string() } else { format!("{start}:{end}") });
+        i += 1;
+    }
+    out.join(",")
+}
+
+pub async fn select(s: &mut ImapSession, path: &str, condstore: bool) -> Result<Selected> {
+    let mb = if condstore { s.select_condstore(path).await } else { s.select(path).await }.map_err(imap_err)?;
+    Ok(Selected {
+        uidvalidity: mb.uid_validity.unwrap_or(0),
+        uidnext: mb.uid_next,
+        highest_modseq: mb.highest_modseq,
+        exists: mb.exists,
+    })
+}
+
+pub async fn search_all_uids(s: &mut ImapSession) -> Result<Vec<u32>> {
+    let mut v: Vec<u32> = s.uid_search("ALL").await.map_err(imap_err)?.into_iter().collect();
+    v.sort_unstable();
+    Ok(v)
+}
+
+const HEADER_QUERY: &str = "(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE \
+    BODY.PEEK[HEADER.FIELDS (FROM TO CC SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])";
+
+pub async fn fetch_headers(s: &mut ImapSession, uids: &[u32]) -> Result<Vec<NewHeader>> {
+    if uids.is_empty() {
+        return Ok(vec![]);
+    }
+    let fetches: Vec<_> =
+        s.uid_fetch(uid_set(uids), HEADER_QUERY).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    let mut out = Vec::with_capacity(fetches.len());
+    for f in &fetches {
+        let Some(uid) = f.uid else { continue };
+        let flags: Vec<Flag<'_>> = f.flags().collect();
+        out.push(NewHeader {
+            uid,
+            headers: parse_header_block(f.header().unwrap_or_default()),
+            internal_date: f.internal_date().map(|d| d.timestamp()).unwrap_or(0),
+            size: f.size.unwrap_or(0) as u64,
+            seen: flags.contains(&Flag::Seen),
+            answered: flags.contains(&Flag::Answered),
+            parts: f.bodystructure().map(flatten_structure).unwrap_or_default(),
+        });
+    }
+    Ok(out)
+}
+
+pub async fn fetch_flags(s: &mut ImapSession, uid_set: &str, changed_since: Option<u64>) -> Result<Vec<(u32, bool, bool)>> {
+    if uid_set.is_empty() {
+        return Ok(vec![]);
+    }
+    let query = match changed_since {
+        Some(m) => format!("(UID FLAGS) (CHANGEDSINCE {m})"),
+        None => "(UID FLAGS)".to_string(),
+    };
+    let fetches: Vec<_> = s.uid_fetch(uid_set, query).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    let mut out: Vec<(u32, bool, bool)> = fetches
+        .iter()
+        .filter_map(|f| {
+            let flags: Vec<Flag<'_>> = f.flags().collect();
+            f.uid.map(|u| (u, flags.contains(&Flag::Seen), flags.contains(&Flag::Answered)))
+        })
+        .collect();
+    out.sort_unstable();
+    Ok(out)
+}
+
+/// Récupère le corps brut d'une partie sans marquer le mail comme lu.
+/// Le décodage se fait avec `mime::synth_mime_header` et les infos de BODYSTRUCTURE.
+pub async fn fetch_part(s: &mut ImapSession, uid: u32, part_path: &str) -> Result<Vec<u8>> {
+    let nums: Vec<u32> = part_path
+        .split('.')
+        .map(|n| n.parse().map_err(|_| CoreError::InvalidInput(format!("partie invalide : {part_path}"))))
+        .collect::<Result<_>>()?;
+    let query = format!("(UID BODY.PEEK[{part_path}])");
+    let fetches: Vec<_> =
+        s.uid_fetch(uid.to_string(), query).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    let f = fetches.iter().find(|f| f.uid == Some(uid)).ok_or(CoreError::NotFound)?;
+    Ok(f.section(&SectionPath::Part(nums, None)).unwrap_or_default().to_vec())
+}
+
+pub async fn store_seen(s: &mut ImapSession, uid: u32, seen: bool) -> Result<()> {
+    let q = if seen { "+FLAGS.SILENT (\\Seen)" } else { "-FLAGS.SILENT (\\Seen)" };
+    let _: Vec<_> = s.uid_store(uid.to_string(), q).await.map_err(imap_err)?.try_collect().await.map_err(imap_err)?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uid_set_compresses() {
+        assert_eq!(uid_set(&[1, 2, 3, 7, 9, 10]), "1:3,7,9:10");
+        assert_eq!(uid_set(&[10, 9, 1]), "1,9:10");
+        assert_eq!(uid_set(&[]), "");
+    }
+}
