@@ -106,7 +106,7 @@ pub(crate) mod tests {
         let a = s.insert_account(&new_account("a@x.fr")).unwrap();
         let b = s.insert_account(&new_account("b@x.fr")).unwrap();
         assert_eq!((a.sort_order, b.sort_order), (0, 1));
-        assert_eq!((a.color.as_str(), b.color.as_str()), ("#2F7BFF", "#8B5CF6"));
+        assert_eq!((a.color.as_str(), b.color.as_str()), ("#8B5CF6", "#14B8A6"));
         assert_eq!(a.status, AccountStatus::Ok);
         let all = s.list_accounts().unwrap();
         assert_eq!(all.iter().map(|x| x.email.as_str()).collect::<Vec<_>>(), ["a@x.fr", "b@x.fr"]);

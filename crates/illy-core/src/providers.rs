@@ -2,7 +2,7 @@
 
 use crate::model::{Provider, ProviderGuess, ServerConfig, TlsMode};
 
-const COLORS: [&str; 6] = ["#2F7BFF", "#8B5CF6", "#14B8A6", "#F59E0B", "#EC4899", "#22C55E"];
+const COLORS: [&str; 6] = ["#8B5CF6", "#14B8A6", "#EC4899", "#F59E0B", "#22C55E", "#38BDF8"];
 const DANGEROUS_EXT: [&str; 8] = ["exe", "bat", "cmd", "ps1", "vbs", "js", "msi", "scr"];
 
 fn tls(host: &str, port: u16) -> ServerConfig {
@@ -83,9 +83,10 @@ mod tests {
 
     #[test]
     fn colors_cycle() {
-        assert_eq!(color_for(0), "#2F7BFF");
-        assert_eq!(color_for(6), "#2F7BFF");
-        assert_eq!(color_for(1), "#8B5CF6");
+        assert_eq!(color_for(0), "#8B5CF6");
+        assert_eq!(color_for(6), "#8B5CF6");
+        assert_eq!(color_for(1), "#14B8A6");
+        assert!((0..6).all(|i| color_for(i) != "#2F7BFF"), "no account dot may use the unread blue");
     }
 
     #[test]
