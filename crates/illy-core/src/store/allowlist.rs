@@ -13,7 +13,7 @@ impl Store {
     }
 
     pub fn images_allowed_for(&self, sender: &str) -> Result<bool> {
-        self.with(|c| {
+        self.with_read(|c| {
             let n: i64 = c.query_row(
                 "SELECT COUNT(*) FROM image_allowlist WHERE sender_email = ?1",
                 [sender.trim().to_lowercase()],

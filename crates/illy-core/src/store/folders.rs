@@ -50,7 +50,7 @@ impl Store {
     }
 
     pub fn list_folders(&self, account: AccountId) -> Result<Vec<Folder>> {
-        let mut out = self.with(|c| {
+        let mut out = self.with_read(|c| {
             let mut st = c.prepare(
                 "SELECT f.id, f.account_id, f.imap_path, f.display_name, f.role, \
                  (SELECT COUNT(*) FROM messages m WHERE m.folder_id = f.id AND m.seen = 0), \

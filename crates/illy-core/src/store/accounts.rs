@@ -51,7 +51,7 @@ impl Store {
     }
 
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
-        self.with(|c| {
+        self.with_read(|c| {
             let mut st = c.prepare(&format!("SELECT {COLS} FROM accounts ORDER BY sort_order"))?;
             let rows = st.query_map([], row_to_account)?.collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
@@ -59,7 +59,7 @@ impl Store {
     }
 
     pub fn get_account(&self, id: AccountId) -> Result<Account> {
-        self.with(|c| {
+        self.with_read(|c| {
             c.query_row(&format!("SELECT {COLS} FROM accounts WHERE id = ?1"), [id], row_to_account)
                 .optional()?
                 .ok_or(CoreError::NotFound)

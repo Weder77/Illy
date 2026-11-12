@@ -195,7 +195,7 @@ impl Store {
 
     pub fn list_messages(&self, scope: ListScope, offset: u32, limit: u32) -> Result<Vec<MessageSummary>> {
         let (filter, folder) = scope_filter(scope);
-        self.with(|c| {
+        self.with_read(|c| {
             let sql = format!(
                 "SELECT {SUMMARY_COLS} FROM messages m WHERE {filter} ORDER BY m.date DESC, m.id DESC \
                  LIMIT {limit} OFFSET {offset}"
@@ -208,7 +208,7 @@ impl Store {
 
     pub fn count_messages(&self, scope: ListScope) -> Result<u32> {
         let (filter, folder) = scope_filter(scope);
-        self.with(|c| {
+        self.with_read(|c| {
             Ok(c.query_row(
                 &format!("SELECT COUNT(*) FROM messages m WHERE {filter}"),
                 params_from_iter(folder),
@@ -218,7 +218,7 @@ impl Store {
     }
 
     pub fn message_location(&self, id: MessageId) -> Result<(AccountId, FolderId, u32)> {
-        self.with(|c| {
+        self.with_read(|c| {
             c.query_row("SELECT account_id, folder_id, uid FROM messages WHERE id = ?1", [id], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
             })
@@ -276,7 +276,7 @@ impl Store {
     }
 
     pub fn part(&self, id: MessageId, part_path: &str) -> Result<(PartInfo, Option<Vec<u8>>)> {
-        self.with(|c| {
+        self.with_read(|c| {
             c.query_row(
                 &format!("SELECT {PART_COLS}, data FROM parts WHERE message_id = ?1 AND part_path = ?2"),
                 params![id, part_path],
@@ -288,7 +288,7 @@ impl Store {
     }
 
     pub fn message_detail(&self, id: MessageId, show_images: bool) -> Result<Option<MessageDetail>> {
-        let row = self.with(|c| {
+        let row = self.with_read(|c| {
             Ok(c.query_row(
                 &format!(
                     "SELECT {SUMMARY_COLS}, m.to_json, m.cc_json, m.body_state, m.body_text, m.body_html, \
@@ -323,7 +323,7 @@ impl Store {
             Some(h) => MessageBody::Html(unblock_images(&h)),
             None => MessageBody::Text(text_to_html(text.as_deref().unwrap_or(""))),
         };
-        let attachments = self.with(|c| {
+        let attachments = self.with_read(|c| {
             let mut st = c.prepare(
                 "SELECT part_path, filename, mime_type, size FROM parts \
                  WHERE message_id = ?1 AND kind = 'attachment' ORDER BY id",
@@ -379,7 +379,7 @@ impl Store {
     }
 
     pub fn message_id_by_uid(&self, folder: FolderId, uid: u32) -> Result<Option<MessageId>> {
-        self.with(|c| {
+        self.with_read(|c| {
             Ok(c.query_row("SELECT id FROM messages WHERE folder_id = ?1 AND uid = ?2", params![folder, uid], |r| r.get(0))
                 .optional()?)
         })
@@ -556,6 +556,36 @@ pub(crate) mod tests {
         s.upsert_headers(a, f[0], &[header(1, 1, "m@x")]).unwrap();
         let seen: Vec<bool> = s.list_messages(ListScope::Folder(f[0]), 0, 10).unwrap().iter().map(|m| m.seen).collect();
         assert_eq!(seen, vec![true, true], "uid 2 updated from server, uid 1 keeps its pending local read");
+    }
+
+    #[test]
+    fn reads_do_not_wait_for_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = Store::open(&dir.path().join("illy.db")).unwrap();
+        let (a, f) = setup(&s, "a@x.fr", &[("INBOX", FolderRole::Inbox)]);
+        s.upsert_headers(a, f[0], &[header(1, 1, "m@x")]).unwrap();
+        let writer = s.clone();
+        let h = std::thread::spawn(move || {
+            writer
+                .with(|c| {
+                    let tx = c.transaction()?;
+                    tx.execute("UPDATE accounts SET display_name = 'x'", [])?;
+                    std::thread::sleep(std::time::Duration::from_millis(600));
+                    tx.commit()?;
+                    Ok(())
+                })
+                .unwrap()
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let t = std::time::Instant::now();
+        assert_eq!(s.list_messages(ListScope::Folder(f[0]), 0, 10).unwrap().len(), 1);
+        s.count_messages(ListScope::UnifiedInbox).unwrap();
+        s.list_folders(a).unwrap();
+        s.list_accounts().unwrap();
+        let id = s.message_id_by_uid(f[0], 1).unwrap().unwrap();
+        s.message_detail(id, false).unwrap();
+        assert!(t.elapsed() < std::time::Duration::from_millis(200), "UI reads blocked by a write: {:?}", t.elapsed());
+        h.join().unwrap();
     }
 
     #[test]

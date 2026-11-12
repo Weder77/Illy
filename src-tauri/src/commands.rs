@@ -18,9 +18,11 @@ pub fn check_url(url: &str) -> R<()> {
     }
 }
 
-#[tauri::command]
-pub fn detect_provider(core: State<'_, Core>, email: String) -> ProviderGuess {
-    core.detect_provider(&email)
+// Les commandes « sync » tournent sur un fil de travail (`async`), jamais sur le fil de la fenêtre.
+
+#[tauri::command(async)]
+pub fn detect_provider(core: State<'_, Core>, email: String) -> R<ProviderGuess> {
+    Ok(core.detect_provider(&email))
 }
 
 #[tauri::command]
@@ -33,22 +35,22 @@ pub async fn update_password(core: State<'_, Core>, account_id: AccountId, passw
     core.update_password(account_id, password).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_accounts(core: State<'_, Core>) -> R<Vec<Account>> {
     core.list_accounts()
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_folders(core: State<'_, Core>, account_id: AccountId) -> R<Vec<Folder>> {
     core.list_folders(account_id)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_messages(core: State<'_, Core>, scope: ListScope, offset: u32, limit: u32) -> R<Vec<MessageSummary>> {
     core.list_messages(scope, offset, limit)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn count_messages(core: State<'_, Core>, scope: ListScope) -> R<u32> {
     core.count_messages(scope)
 }
@@ -63,7 +65,7 @@ pub async fn open_message(core: State<'_, Core>, id: MessageId, show_images: boo
     core.open_message(id, show_images).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn allow_images_from(core: State<'_, Core>, sender: String) -> R<()> {
     core.allow_images_from(&sender)
 }
@@ -86,7 +88,7 @@ pub async fn save_attachment(app: AppHandle, core: State<'_, Core>, id: MessageI
     core.save_attachment(id, &part_path, &dest).await
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_url(app: AppHandle, url: String) -> R<()> {
     check_url(&url)?;
     app.opener()

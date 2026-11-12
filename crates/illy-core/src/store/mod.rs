@@ -17,9 +17,12 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// Accès SQLite : une connexion d'écriture (synchro) et une connexion de lecture (interface),
+/// pour que l'affichage ne bloque jamais pendant une écriture (mode WAL).
 #[derive(Clone)]
 pub struct Store {
     conn: Arc<Mutex<Connection>>,
+    read: Arc<Mutex<Connection>>,
 }
 
 impl Store {
@@ -27,7 +30,12 @@ impl Store {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "synchronous", "NORMAL")?;
-        Self::init(conn)
+        let mut store = Self::init(conn)?;
+        let read = Connection::open(path)?;
+        read.pragma_update(None, "query_only", "ON")?;
+        read.busy_timeout(std::time::Duration::from_secs(5))?;
+        store.read = Arc::new(Mutex::new(read));
+        Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Store> {
@@ -45,13 +53,20 @@ impl Store {
                 schema::SCHEMA_VERSION
             ))?;
         }
-        Ok(Store { conn: Arc::new(Mutex::new(conn)) })
+        let conn = Arc::new(Mutex::new(conn));
+        Ok(Store { read: conn.clone(), conn })
     }
 
-    /// Exécute `f` avec la connexion (verrou tenu pendant l'appel).
+    /// Exécute `f` avec la connexion d'écriture (verrou tenu pendant l'appel).
     pub(crate) fn with<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
         let mut guard = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         f(&mut guard)
+    }
+
+    /// Lecture seule, sur la connexion de lecture (n'attend pas les écritures en cours).
+    pub(crate) fn with_read<T>(&self, f: impl FnOnce(&Connection) -> Result<T>) -> Result<T> {
+        let guard = self.read.lock().unwrap_or_else(|p| p.into_inner());
+        f(&guard)
     }
 }
 
